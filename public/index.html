@@ -1,0 +1,1612 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PlayAlong</title>
+<meta name="description" content="A songbook that scrolls chords and lyrics in time with the song.">
+<meta name="theme-color" content="#F3F4EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1214" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PlayAlong">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Condensed:wght@600;700&display=swap">
+<style>
+/* Layout: a one-screen music stand. Song list -> chart (header / scrolling sheet / thumb-height transport bar).
+   Chords sit in blue "pencil" above the lyrics on manuscript-grey paper. */
+:root{
+  --bg:#F3F4EF;
+  --surface:#FFFFFF;
+  --fg:#16191B;
+  --muted:#5D6466;
+  --line:#D8DBD3;
+  --chord:#1B4FCF;
+  --chord-soft:rgba(27,79,207,.10);
+  --chord-ring:rgba(27,79,207,.30);
+  --on-chord:#FFFFFF;
+  --notice:#FBEFCF;
+  --danger:#B42318;
+  --f-lyric:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --f-chord:"Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  --f-mono:ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --gut:16px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1214; --surface:#171B1E; --fg:#ECEEEA; --muted:#98A09C; --line:#2A3136;
+    --chord:#8DB8FF; --chord-soft:rgba(141,184,255,.12); --chord-ring:rgba(141,184,255,.34); --on-chord:#0A1222;
+    --notice:#3A2F14; --danger:#FF8F84; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1214; --surface:#171B1E; --fg:#ECEEEA; --muted:#98A09C; --line:#2A3136;
+  --chord:#8DB8FF; --chord-soft:rgba(141,184,255,.12); --chord-ring:rgba(141,184,255,.34); --on-chord:#0A1222;
+  --notice:#3A2F14; --danger:#FF8F84; color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.45 var(--f-lyric);overflow:hidden;-webkit-text-size-adjust:100%}
+#app{height:100%;display:flex;flex-direction:column;max-width:54rem;margin-inline:auto}
+.view{flex:1;min-height:0;display:flex;flex-direction:column}
+.pad{padding-inline:var(--gut)}
+.scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;-webkit-tap-highlight-color:transparent}
+button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible{outline:2px solid var(--chord);outline-offset:2px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.4em;min-height:42px;padding:0 16px;border-radius:10px;font-weight:700;font-size:.95rem;white-space:nowrap}
+.btn.primary{background:var(--chord);color:var(--on-chord)}
+.btn.ghost{color:var(--chord);padding:0 10px}
+.btn.quiet{border:1px solid var(--line);background:var(--surface)}
+.btn.danger{color:var(--danger);border:1px solid currentColor;background:transparent}
+.btn.danger.armed{background:var(--danger);color:var(--surface);border-color:var(--danger)}
+.btn[disabled]{opacity:.55;cursor:default}
+.icon{width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:10px}
+.icon svg{width:24px;height:24px}
+.mini{min-width:36px;height:36px;padding:0 8px;border-radius:9px;border:1px solid var(--line);background:var(--surface);font-weight:700;font-size:1rem;line-height:1;display:inline-grid;place-items:center}
+.linkbtn{color:var(--chord);font-weight:700;text-decoration:underline;text-underline-offset:3px}
+
+/* ---------- library ---------- */
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:14px 12px;border-bottom:1px solid var(--line)}
+.brand{display:flex;flex-direction:column;min-width:0}
+.brand b{font:700 1.75rem/1 var(--f-chord);letter-spacing:.01em}
+.brand span{font-size:.82rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.banner{background:var(--notice);padding-block:10px;font-size:.88rem}
+.search{padding-block:12px 2px}
+.search input,.field input,.field textarea{width:100%;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:10px;font:inherit;font-size:16px}
+.search input{height:44px;padding:0 14px}
+.list{list-style:none;margin:0;padding:0 0 24px}
+.item{width:100%;text-align:left;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;column-gap:14px;row-gap:2px;padding:14px 0;border-bottom:1px solid var(--line)}
+.it-title{grid-column:1;font:600 1.35rem/1.15 var(--f-chord);overflow-wrap:anywhere}
+.it-meta{grid-column:1;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--muted);font-size:.88rem;font-variant-numeric:tabular-nums}
+.it-key{grid-column:2;grid-row:1 / span 2;font:700 1.5rem/1 var(--f-chord);color:var(--chord);min-width:2ch;text-align:right}
+.chip{font-size:.68rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--chord);background:var(--chord-soft);padding:3px 8px;border-radius:999px}
+.empty{padding-block:40px;max-width:30rem;display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.empty h2{margin:0;font:700 1.5rem/1.1 var(--f-chord);text-wrap:balance}
+.empty p{margin:0;color:var(--muted)}
+
+/* ---------- song ---------- */
+.songhead{display:flex;flex-direction:column;gap:6px;padding-block:6px 10px;border-bottom:1px solid var(--line)}
+.row1{display:flex;align-items:center;gap:4px;margin-left:-10px}
+.titles{flex:1;min-width:0}
+.titles h1{margin:0;font:700 1.5rem/1.1 var(--f-chord);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.titles div{color:var(--muted);font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tools{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px}
+.grp{display:inline-flex;align-items:center;gap:6px}
+.lab{font-size:.7rem;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.keyval{font:700 1.3rem/1 var(--f-chord);color:var(--chord);min-width:2.6em;height:36px;display:inline-flex;align-items:center;justify-content:center;gap:3px;border-radius:9px}
+.keyval small{font:700 .72rem/1 var(--f-lyric);color:var(--muted)}
+
+.sheet{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;outline:none;
+  padding-block:14px 32px;font-size:calc(21px * var(--scale,1));line-height:1.4}
+.facts{display:flex;flex-wrap:wrap;gap:6px 14px;margin:0 0 .8em;font-size:.66em;color:var(--muted);font-variant-numeric:tabular-nums}
+.facts strong{color:var(--fg)}
+.notes{white-space:pre-wrap;font-size:.72em;color:var(--muted);border-left:3px solid var(--line);padding:2px 0 2px 10px;margin:0 0 1em;overflow-wrap:anywhere}
+.ln{margin:0;overflow-wrap:anywhere}
+.ln.has-ch{line-height:1.25;padding-top:.15em}
+.w{white-space:nowrap}
+.seg{display:inline-block;vertical-align:baseline}
+.ch{display:block;font-family:var(--f-chord);font-weight:700;font-size:.95em;line-height:1.1;color:var(--chord);padding-right:.32em;white-space:nowrap}
+.ly{white-space:pre}
+.ln.only{display:flex;flex-wrap:wrap;gap:.1em 1.1em;padding-block:.15em}
+.ln.only .ch{display:inline;padding:0}
+.gap{height:.8em}
+.lbl{font:700 .62em/1.2 var(--f-lyric);letter-spacing:.11em;text-transform:uppercase;color:var(--muted);margin:.3em 0 .35em}
+.lbl.is-chorus{color:var(--chord)}
+.sec-chorus{border-left:3px solid var(--chord-ring);padding-left:12px}
+.sheet-empty{color:var(--muted);font-size:.8em}
+.tabwrap{margin:.25em 0 .7em;display:flex;flex-direction:column;gap:.3em}
+.tabnote{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;font-size:.6em;color:var(--muted)}
+pre.tab{margin:0;padding:.5em .7em;font:600 .66em/1.35 var(--f-mono);white-space:pre;overflow-x:auto;-webkit-overflow-scrolling:touch;
+  background:var(--surface);border:1px solid var(--line);border-radius:8px}
+
+.strip{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;padding-block:8px;background:var(--chord-soft);font-size:.86rem;font-variant-numeric:tabular-nums}
+.strip .acts{display:flex;gap:8px}
+.strip .btn{min-height:34px;padding:0 12px;font-size:.85rem}
+
+.transport{background:var(--surface);border-top:1px solid var(--line);padding-block:0 8px}
+.prog{height:3px;margin-inline:calc(var(--gut) * -1);background:var(--line);overflow:hidden}
+.prog div{height:100%;background:var(--chord);transform-origin:left center;transform:scaleX(0)}
+.status{min-height:1.5em;padding-top:6px;text-align:center;font-size:.82rem;color:var(--muted)}
+.tbar{display:flex;align-items:center;justify-content:space-between;gap:6px;padding-top:2px}
+.tleft{display:flex;align-items:center;gap:0;flex:0 1 auto;min-width:0;margin-left:-8px}
+.tleft .icon{width:40px}
+.speed{display:inline-flex;align-items:center;gap:4px}
+.speed .mini{min-width:32px;height:34px}
+#sp-val{min-width:2.9em;text-align:center;font-weight:700;font-size:.9rem;font-variant-numeric:tabular-nums}
+.playbtn{width:60px;height:60px;flex:none;border-radius:50%;background:var(--chord);color:var(--on-chord);display:grid;place-items:center}
+.playbtn svg{width:28px;height:28px}
+.playbtn.beat{box-shadow:0 0 0 5px var(--chord-soft)}
+.playbtn.beat.down{box-shadow:0 0 0 8px var(--chord-ring)}
+.tright{flex:0 1 auto;min-width:0;text-align:right;font-weight:700;font-size:1rem;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tright span{color:var(--muted);font-weight:400}
+
+/* ---------- editor ---------- */
+.edform{display:flex;flex-direction:column;gap:16px;padding-block:16px 40px}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field label{font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.field input{height:44px;padding:0 12px}
+.field textarea{padding:10px 12px;resize:vertical}
+#f-notes{min-height:6.5em}
+#f-body{font-family:var(--f-mono);font-size:16px;line-height:1.45;min-height:22em;white-space:pre;overflow-wrap:normal;overflow-x:auto}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.grid4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.hint{margin:0;font-size:.8rem;color:var(--muted)}
+.help{border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:0 14px}
+.help summary{cursor:pointer;font-weight:700;padding:12px 0;color:var(--chord)}
+.help div{padding-bottom:12px;font-size:.88rem;display:flex;flex-direction:column;gap:8px}
+.help p{margin:0}
+.help pre{margin:0;padding:10px 12px;border-radius:8px;background:var(--bg);font:14px/1.4 var(--f-mono);overflow-x:auto}
+.err{margin:0;color:var(--danger);font-weight:700;font-size:.9rem}
+.libfoot{display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding-block:8px 32px;font-size:.9rem}
+label.linkbtn{cursor:pointer}
+.login{margin:auto;width:100%;max-width:24rem;display:flex;flex-direction:column;gap:14px;padding-block:40px}
+.login-brand{margin:0;font:700 2.4rem/1 var(--f-chord)}
+.login-form{display:flex;flex-direction:column;gap:10px}
+.login-form input{height:48px;padding:0 14px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--fg);font:inherit;font-size:16px}
+.shots{display:flex;flex-direction:column;gap:12px;padding:14px;border:1.5px dashed var(--chord-ring);border-radius:12px;background:var(--chord-soft)}
+.shots.drag{border-style:solid;border-color:var(--chord)}
+.shots-intro{display:flex;flex-direction:column;gap:4px}
+.shots-tools{display:flex;flex-direction:column;gap:12px}
+.shots h2{margin:0;font:700 1.25rem/1.1 var(--f-chord)}
+.pickrow{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.vh{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.vh:focus-visible + label{outline:2px solid var(--chord);outline-offset:2px}
+label.btn{cursor:pointer}
+.thumbs{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.thumbs li{position:relative;width:64px;height:112px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--surface)}
+.thumbs img{display:block;width:100%;height:100%;object-fit:cover;object-position:top}
+.thumbs .n{position:absolute;left:4px;bottom:4px;padding:3px 6px;border-radius:5px;background:var(--fg);color:var(--bg);font:700 .7rem/1 var(--f-lyric)}
+.thumbs .x{position:absolute;top:3px;right:3px;width:26px;height:26px;border-radius:50%;background:var(--fg);color:var(--bg);font-weight:700;line-height:1;display:grid;place-items:center}
+.shot-status{margin:0;font-size:.9rem;font-variant-numeric:tabular-nums}
+.unsure{margin:0;padding-left:1.2em;font-size:.86rem;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(120px + env(safe-area-inset-bottom,0px));z-index:5;max-width:calc(100% - 32px);
+  background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:.9rem;font-weight:700;text-align:center}
+@media (max-width:374px){ .tright span{display:none} #sp-val{min-width:2.5em} .grid4{grid-template-columns:repeat(2,minmax(0,1fr))} }
+</style>
+</head>
+<body>
+<div id="app">
+  <!-- Library -->
+  <section id="v-lib" class="view">
+    <header class="top pad">
+      <div class="brand"><b>PlayAlong</b><span id="count">Opening your songbook…</span></div>
+      <button id="btn-new" class="btn primary" type="button">New song</button>
+    </header>
+    <div id="banner" class="banner pad" role="status" hidden></div>
+    <div class="search pad"><input id="q" type="search" placeholder="Search songs or artists" aria-label="Search songs or artists" autocomplete="off"></div>
+    <div class="scroll pad">
+      <ul id="list" class="list"></ul>
+      <div id="lib-empty" class="empty" hidden></div>
+      <div id="libfoot" class="libfoot" hidden>
+        <a class="linkbtn" href="/api/export" download>Download a backup of your songs</a>
+        <input id="import-input" class="vh" type="file" accept="application/json,.json">
+        <label for="import-input" class="linkbtn">Import songs from a backup</label>
+        <button id="signout" class="linkbtn" type="button">Sign out</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Sign in -->
+  <section id="v-login" class="view" hidden>
+    <div class="login pad">
+      <h1 class="login-brand">PlayAlong</h1>
+      <p id="login-hint" class="hint">Enter your passcode to open your songbook.</p>
+      <form id="login-form" class="login-form" novalidate>
+        <label for="passcode" class="lab">Passcode</label>
+        <input id="passcode" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false">
+        <button id="login-btn" class="btn primary" type="submit">Open songbook</button>
+      </form>
+      <p id="login-err" class="err" role="alert" hidden></p>
+    </div>
+  </section>
+
+  <!-- Song -->
+  <section id="v-song" class="view" hidden>
+    <header class="songhead pad">
+      <div class="row1">
+        <button id="back" class="icon" type="button" aria-label="Back to all songs"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+        <div class="titles"><h1 id="s-title"></h1><div id="s-artist"></div></div>
+        <button id="s-edit" class="btn ghost" type="button">Edit</button>
+      </div>
+      <div class="tools">
+        <div class="grp"><span class="lab">Key</span>
+          <button id="tr-down" class="mini" type="button" aria-label="Transpose down a half step">−</button>
+          <button id="tr-val" class="keyval" type="button" title="Tap to go back to the original key"></button>
+          <button id="tr-up" class="mini" type="button" aria-label="Transpose up a half step">+</button>
+        </div>
+        <div class="grp"><span class="lab">Text</span>
+          <button id="fs-down" class="mini" type="button" aria-label="Smaller text">A−</button>
+          <button id="fs-up" class="mini" type="button" aria-label="Larger text">A+</button>
+        </div>
+      </div>
+    </header>
+    <div id="sheet" class="sheet pad" tabindex="-1"><div id="sheet-inner"></div></div>
+    <div id="strip" class="strip pad" hidden>
+      <span id="strip-text"></span>
+      <span class="acts"><button id="sp-save" class="btn primary" type="button">Save speed</button><button id="sp-reset" class="btn quiet" type="button">Back to 100%</button></span>
+    </div>
+    <footer class="transport pad">
+      <div class="prog" aria-hidden="true"><div id="prog-fill"></div></div>
+      <div class="status"><span id="status"></span> <button id="need-len" class="linkbtn" type="button" hidden>Add the song length</button></div>
+      <div class="tbar">
+        <div class="tleft">
+          <button id="reset" class="icon" type="button" aria-label="Stop and go back to the top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h14M12 20V9M7 13l5-5 5 5"/></svg></button>
+          <div class="speed" aria-label="Scroll speed">
+            <button id="sp-down" class="mini" type="button" aria-label="Scroll slower">−</button>
+            <span id="sp-val">100%</span>
+            <button id="sp-up" class="mini" type="button" aria-label="Scroll faster">+</button>
+          </div>
+        </div>
+        <button id="play" class="playbtn" type="button" aria-label="Start scrolling"></button>
+        <div class="tright" id="clock">0:00 <span>/ –:––</span></div>
+      </div>
+    </footer>
+  </section>
+
+  <!-- Editor -->
+  <section id="v-edit" class="view" hidden>
+    <header class="top pad">
+      <button id="ed-cancel" class="btn ghost" type="button" style="margin-left:-10px">Cancel</button>
+      <div class="brand" style="align-items:center"><b id="ed-heading" style="font-size:1.35rem">New song</b></div>
+      <button id="ed-save" class="btn primary" type="submit" form="ed-form">Save</button>
+    </header>
+    <div class="scroll pad">
+      <form id="ed-form" class="edform" novalidate>
+        <section id="shots" class="shots" aria-labelledby="shots-h">
+          <div class="shots-intro">
+            <h2 id="shots-h">Read from screenshots</h2>
+            <p class="hint">Add screenshots of a chord sheet, in any order. PlayAlong reads the chords and lyrics on your phone and fills in the song below for you to check.</p>
+          </div>
+          <p id="shots-state" class="shot-status" hidden></p>
+          <div id="shots-tools" class="shots-tools">
+          <div class="pickrow">
+            <input id="shot-input" class="vh" type="file" accept="image/png,image/jpeg" multiple>
+            <label for="shot-input" id="shot-pick" class="btn quiet">Choose screenshots</label>
+            <span class="hint">You can also drop or paste them here.</span>
+          </div>
+          <ol id="shot-list" class="thumbs" hidden></ol>
+          <div class="pickrow">
+            <button id="shot-read" class="btn primary" type="button" disabled>Read screenshots</button>
+            <button id="shot-stop" class="btn quiet" type="button" hidden>Stop</button>
+          </div>
+          <p id="shot-status" class="shot-status" role="status" aria-live="polite" hidden></p>
+          <ul id="shot-unsure" class="unsure" hidden></ul>
+          <div id="shot-choice" class="pickrow" hidden>
+            <button id="shot-replace" class="btn primary" type="button">Replace them</button>
+            <button id="shot-append" class="btn quiet" type="button">Add to the end</button>
+          </div>
+          </div>
+        </section>
+        <div class="field"><label for="f-title">Title</label><input id="f-title" autocomplete="off"></div>
+        <div class="field"><label for="f-artist">Artist</label><input id="f-artist" autocomplete="off"></div>
+        <div class="grid4">
+          <div class="field"><label for="f-key">Key</label><input id="f-key" placeholder="G" autocomplete="off" autocapitalize="characters"></div>
+          <div class="field"><label for="f-capo">Capo</label><input id="f-capo" inputmode="numeric" placeholder="0" autocomplete="off"></div>
+          <div class="field"><label for="f-time">Time</label><input id="f-time" placeholder="4/4" autocomplete="off"></div>
+          <div class="field"><label for="f-bpm">BPM</label><input id="f-bpm" inputmode="numeric" placeholder="96" autocomplete="off"></div>
+        </div>
+        <div class="grid3">
+          <div class="field"><label for="f-length">Length</label><input id="f-length" inputmode="numeric" placeholder="3:45" autocomplete="off"></div>
+          <div class="field"><label for="f-lead">Intro</label><input id="f-lead" inputmode="numeric" placeholder="0:00" autocomplete="off"></div>
+          <div class="field"><label for="f-outro">Outro</label><input id="f-outro" inputmode="numeric" placeholder="0:00" autocomplete="off"></div>
+        </div>
+        <p class="hint"><strong>Length</strong> is the song’s running time, like 3:45 from the recording. <strong>Intro</strong> is how long before the singing starts and <strong>Outro</strong> is how long the music plays after the last line. The sheet holds still for both and scrolls through the singing in between.</p>
+        <div class="field"><label for="f-notes">Notes</label><textarea id="f-notes" rows="2" placeholder="Strumming pattern, who sings what, reminders"></textarea></div>
+        <div class="field"><label for="f-body">Chords and lyrics</label>
+          <textarea id="f-body" rows="18" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Paste a chord sheet here.
+
+[Verse 1]
+        G              C
+Amazing grace, how sweet the sound"></textarea>
+        </div>
+        <details class="help">
+          <summary>How to write chords</summary>
+          <div>
+            <p>Use whichever style you have. Both can be transposed.</p>
+            <p><strong>Chords above lyrics</strong>, the way most chord websites show them. Keep each chord over the word it lands on:</p>
+            <pre>[Chorus]
+G               D7
+Come and sit by my side</pre>
+            <p><strong>ChordPro</strong>, with each chord in square brackets right before the syllable:</p>
+            <pre>A[G]mazing grace, how [C]sweet the sound</pre>
+            <p><strong>Guitar tab</strong> can go in as written. Six-line guitar tab is shown converted for baritone ukulele, and you can switch back to the original on the song:</p>
+            <pre>e|-----0-----|
+B|---1---1---|
+G|-0-------0-|
+D|-----------|
+A|-3---------|
+E|-----------|</pre>
+            <p>A line on its own like <code>[Chorus]</code>, <code>Verse 2:</code> or <code>{c: Bridge}</code> becomes a section heading. ChordPro tags like <code>{title: …}</code>, <code>{key: …}</code> and <code>{duration: 3:45}</code> fill in empty fields when you save.</p>
+          </div>
+        </details>
+        <p id="ed-err" class="err" role="alert" hidden></p>
+        <div id="ed-del-wrap"><button id="ed-del" class="btn danger" type="button">Delete song</button></div>
+      </form>
+    </div>
+  </section>
+</div>
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script>
+/*MUSIC-START*/
+const CHORD_RE = /^\(?[A-G](?:#|b|♯|♭)?(?:maj|ma|min|mi|m|M|dim|aug|sus|add|°|ø|\+|-)?\d{0,2}(?:(?:maj|add|sus|no|b|#|\+|-|♭|♯|\/)?\d{1,2})*(?:\([^)]*\))?(?:\/[A-G](?:#|b|♯|♭)?)?\)?$/;
+const SYM_RE = /^(?:\|+:?|:?\|+|\/|-|%|\.+|x\d+|\(x\d+\)|\*|N\.?C\.?)$/i;
+const DIRECTIVE_RE = /^\{\s*([A-Za-z_]+)\s*(?::\s*([^}]*?))?\s*\}$/;
+const LABEL_RE = /^(?:intro|verse|chorus|pre-?chorus|bridge|outro|solo|instrumental|interlude|tag|refrain|coda|ending|break|hook|riff|turnaround|vamp)(?:\s*\d+)?(?:\s*\(?x\s*\d+\)?)?\s*:?$/i;
+const META_KEYS = { title:'title', t:'title', subtitle:'artist', st:'artist', artist:'artist', key:'key', capo:'capo', tempo:'bpm', time:'time', duration:'length' };
+const SHARPS = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const FLATS  = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+
+function isChordTok(t){ return CHORD_RE.test(t) || SYM_RE.test(t); }
+function isChordLine(line){
+  const t = (line || '').trim();
+  if (!t || t.includes('[') || t.includes('{')) return false;
+  let chords = 0;
+  for (const tok of t.split(/\s+/)){
+    if (CHORD_RE.test(tok)) chords++;
+    else if (!SYM_RE.test(tok)) return false;
+  }
+  return chords > 0;
+}
+/* Tablature. Baritone ukulele is tuned D G B E, the same as a guitar's four highest strings,
+   so those lines copy across unchanged; notes on the guitar's A and low E strings are moved
+   onto the four baritone strings, an octave up when they are below the baritone's range. */
+const TAB_BODY_RE = /^[-|0-9hpbrxstvHPBRX\/\\~()<>.^*=: ]+$/;
+const GUITAR_OPEN = [64, 59, 55, 50, 45, 40];   // e B G D A E as MIDI notes, top tab line first
+function isTabLine(line){
+  const t = (line || '').trim();
+  if (t.length < 6) return false;
+  const i = t.search(/[|-]/);
+  if (i < 0 || i > 3) return false;
+  const label = t.slice(0, i).trim();
+  if (label && !/^[A-Ga-g][#b]?$/.test(label)) return false;
+  const body = t.slice(i);
+  if (!TAB_BODY_RE.test(body)) return false;
+  const dashes = (body.match(/-/g) || []).length;
+  return dashes >= 3 && dashes >= body.length * 0.35;
+}
+function tabParts(line){
+  const t = line.replace(/\s+$/, ''); const i = t.search(/[|-]/);
+  return i < 0 ? { label: t, body: '' } : { label: t.slice(0, i), body: t.slice(i) };
+}
+function convertTabToBaritone(lines){
+  const idx = lines.map((l, k) => isTabLine(l) ? k : -1).filter(k => k >= 0);
+  if (idx.length !== 6 || idx[5] - idx[0] !== 5) return null;
+  const parts = idx.map(k => tabParts(lines[k]));
+  const names = parts.map(p => p.label.trim().toUpperCase());
+  if (names.slice(0, 4).every(Boolean) && names.slice(0, 4).join('') !== 'EBGD') return null;   // top four not standard tuning
+  const open = GUITAR_OPEN.slice();
+  if (names[5] === 'D') open[5] = 38;                                                          // drop D
+  const width = Math.max(...parts.map(p => p.body.length));
+  const grid = parts.map(p => p.body.padEnd(width, '-').split(''));
+  const notesOf = (row) => { const r = [], s = row.join(''), re = /\d+/g; let m; while ((m = re.exec(s))) r.push({ col: m.index, fret: +m[0] }); return r; };
+  const all = grid.map(notesOf);
+  const out = grid.slice(0, 4).map(r => r.slice());
+  // where the hand is on the neck near this column, judged from the top four strings
+  const handAt = (col) => {
+    const fr = [];
+    for (let t = 0; t < 4; t++) for (const n of all[t]) if (n.fret > 0 && Math.abs(n.col - col) <= 6) fr.push(n.fret);
+    return fr.length ? fr.reduce((a, b) => a + b, 0) / fr.length : 2;
+  };
+  const free = (row, col, len) => {
+    for (let k = col - 1; k <= col + len; k++){
+      const c = row[k]; if (c === undefined) continue;
+      if (k >= col && k < col + len){ if (c !== '-' && c !== ' ') return false; }
+      else if (/\d/.test(c)) return false;
+    }
+    return true;
+  };
+  // If any bass note is below the baritone's lowest note (D3), raise all of this staff's bass
+  // notes an octave together so a riff keeps its shape instead of jumping between octaves.
+  const lift = [4, 5].some(s => all[s].some(n => open[s] + n.fret < 50)) ? 12 : 0;
+  // note names already sounding in this column on the four baritone strings
+  const namesAt = (col) => {
+    const pcs = new Set();
+    for (let t = 0; t < 4; t++){
+      const row = out[t];
+      if (!/\d/.test(row[col] || '') || /\d/.test(row[col - 1] || '')) continue;
+      let k = col, d = '';
+      while (/\d/.test(row[k] || '')) d += row[k++];
+      pcs.add((GUITAR_OPEN[t] + +d) % 12);
+    }
+    return pcs;
+  };
+  let moved = 0, doubled = 0, dropped = 0;
+  for (let s = 4; s < 6; s++){
+    for (const n of all[s]){
+      const pitch = open[s] + n.fret + lift;
+      if (namesAt(n.col).has(pitch % 12)){ doubled++; continue; }   // the chord already has this note
+      const hand = handAt(n.col);
+      let best = null;
+      for (let t = 3; t >= 0; t--){
+        const f = pitch - GUITAR_OPEN[t];
+        if (f < 0 || f > 15) continue;
+        const txt = String(f);
+        if (!free(out[t], n.col, txt.length)) continue;
+        const score = Math.abs(f - hand) + (3 - t) * 0.5;
+        if (!best || score < best.score) best = { t, txt, score };
+      }
+      if (!best){ dropped++; continue; }
+      for (let k = 0; k < best.txt.length; k++){
+        while (out[best.t].length <= n.col + k) out[best.t].push('-');
+        out[best.t][n.col + k] = best.txt[k];
+      }
+      moved++;
+    }
+  }
+  const staff = out.map((r, t) => parts[t].label + r.join('').replace(/\s+$/, ''));
+  return { lines: [...lines.slice(0, idx[0]), ...staff, ...lines.slice(idx[5] + 1)], moved, doubled, dropped };
+}
+
+function isLyricLine(line){
+  const t = (line || '').trim();
+  if (!t || t.includes('[') || isTabLine(line)) return false;
+  if (DIRECTIVE_RE.test(t) || LABEL_RE.test(t) || isChordLine(line)) return false;
+  return true;
+}
+function parseInline(line){
+  const parts = []; const re = /\[([^\]]*)\]/g; let last = 0, chord = null, m;
+  while ((m = re.exec(line))){
+    parts.push({ chord, text: line.slice(last, m.index) });
+    chord = m[1].trim() || null; last = re.lastIndex;
+  }
+  parts.push({ chord, text: line.slice(last) });
+  return parts.filter((p, i) => !(i === 0 && p.chord == null && p.text === ''));
+}
+function mergeChordLyric(chordLine, lyric){
+  const marks = []; const re = /\S+/g; let m;
+  while ((m = re.exec(chordLine))) marks.push({ col: m.index, ch: m[0] });
+  let L = lyric;
+  const need = marks.length ? marks[marks.length - 1].col : 0;
+  if (L.length < need) L += ' '.repeat(need - L.length);
+  for (let k = marks.length - 1; k >= 0; k--){
+    const { col, ch } = marks[k];
+    L = L.slice(0, col) + '[' + ch + ']' + L.slice(col);
+  }
+  return L;
+}
+function labelItem(text){ return { type:'label', text, chorus: /chorus|refrain/i.test(text) }; }
+
+function parseSong(body){
+  const meta = {}; const items = [];
+  const lines = String(body || '').replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n');
+  for (let i = 0; i < lines.length; i++){
+    const raw = lines[i].replace(/\s+$/, ''); const t = raw.trim();
+    if (!t){ if (items.length && items[items.length - 1].type !== 'gap') items.push({ type:'gap' }); continue; }
+    if (isTabLine(raw)){
+      const block = [raw];
+      while (i + 1 < lines.length && isTabLine(lines[i + 1])) block.push(lines[++i].replace(/\s+$/, ''));
+      items.push({ type:'tab', lines: block });
+      continue;
+    }
+    let m = t.match(DIRECTIVE_RE);
+    if (m){
+      const name = m[1].toLowerCase(), val = (m[2] || '').trim();
+      if (/^(sot|start_of_tab)$/.test(name)){
+        // keep everything up to {end_of_tab} exactly as written; blank lines separate staves
+        let block = [];
+        const flush = () => { if (block.length) items.push({ type:'tab', lines: block }); block = []; };
+        while (i + 1 < lines.length && !/^\{\s*(eot|end_of_tab)\s*\}$/i.test(lines[i + 1].trim())){
+          const l = lines[++i].replace(/\s+$/, '');
+          if (l.trim()) block.push(l); else flush();
+        }
+        flush();
+        if (i + 1 < lines.length) i++;   // skip {end_of_tab}
+        continue;
+      }
+      if (META_KEYS[name]) meta[META_KEYS[name]] = val;
+      else if (/^(soc|start_of_chorus)$/.test(name)) items.push({ type:'start', kind:'chorus', label: val || 'Chorus' });
+      else if (/^(sov|start_of_verse)$/.test(name)) items.push({ type:'start', kind:'verse', label: val });
+      else if (/^(sob|start_of_bridge)$/.test(name)) items.push({ type:'start', kind:'bridge', label: val || 'Bridge' });
+      else if (/^(eoc|end_of_chorus|eov|end_of_verse|eob|end_of_bridge)$/.test(name)) items.push({ type:'end' });
+      else if (/^(c|comment|ci|comment_italic|cb|comment_box|highlight)$/.test(name)) { if (val) items.push(labelItem(val)); }
+      else if (name === 'chorus') items.push({ type:'label', text: val || 'Chorus', chorus: true });
+      continue;
+    }
+    m = t.match(/^\[([^\[\]]+)\]$/);
+    if (m && !isChordTok(m[1].trim())){ items.push(labelItem(m[1].trim())); continue; }
+    if (LABEL_RE.test(t)){ items.push(labelItem(t.replace(/\s*:$/, ''))); continue; }
+    m = t.match(/^\((.+)\)$/);                                       // "(verse 1)"
+    if (m && LABEL_RE.test(m[1].trim())){ items.push(labelItem(m[1].trim())); continue; }
+    m = t.match(/^((?:intro|outro|verse|chorus|pre-?chorus|bridge|solo|riff|instrumental|interlude|tag|ending|coda|turnaround)(?:\s*\d+)?)\s*[-:–—]?\s+(.+)$/i);
+    if (m && isChordLine(m[2])){                                     // "Intro - E F#m A E"
+      items.push(labelItem(m[1].trim()));
+      items.push({ type:'chords', chords: m[2].trim().split(/\s+/) });
+      continue;
+    }
+    if (isChordLine(raw)){
+      const next = lines[i + 1];
+      if (next != null && isLyricLine(next)){
+        items.push({ type:'line', parts: parseInline(mergeChordLyric(raw, next.replace(/\s+$/, ''))) });
+        i++;
+      } else {
+        items.push({ type:'chords', chords: t.split(/\s+/) });
+      }
+      continue;
+    }
+    const parts = parseInline(raw);
+    if (parts.some(p => p.chord) && parts.every(p => !p.text.trim())){
+      items.push({ type:'chords', chords: parts.filter(p => p.chord).map(p => p.chord) });
+      continue;
+    }
+    items.push({ type:'line', parts });
+  }
+  while (items.length && items[items.length - 1].type === 'gap') items.pop();
+  return { meta, items };
+}
+
+function noteIdx(n){
+  let v = { C:0, D:2, E:4, F:5, G:7, A:9, B:11 }[n[0]];
+  if (n[1] === '#' || n[1] === '♯') v++;
+  if (n[1] === 'b' || n[1] === '♭') v--;
+  return (v + 12) % 12;
+}
+function shiftNote(note, n, flats){ return (flats ? FLATS : SHARPS)[(noteIdx(note) + n + 120) % 12]; }
+function transposeChord(ch, n, flats){
+  if (!n || !CHORD_RE.test(ch)) return ch;
+  return ch
+    .replace(/^(\(?)([A-G][#b♯♭]?)/, (_, p, r) => p + shiftNote(r, n, flats))
+    .replace(/\/([A-G][#b♯♭]?)(\)?)$/, (_, r, p) => '/' + shiftNote(r, n, flats) + p);
+}
+function firstChord(body){
+  for (const it of parseSong(body).items){
+    if (it.type === 'chords'){ const c = it.chords.find(x => CHORD_RE.test(x)); if (c) return c; }
+    if (it.type === 'line'){ const p = it.parts.find(x => x.chord && CHORD_RE.test(x.chord)); if (p) return p.chord; }
+  }
+  return null;
+}
+function preferFlats(song, n){
+  const src = (song.key || '').trim() || firstChord(song.body) || '';
+  const m = src.match(/^\(?([A-G][#b♯♭]?)(m(?!aj))?/);
+  if (!m) return false;
+  const idx = (noteIdx(m[1]) + n + 120) % 12;
+  return m[2] ? [0, 2, 3, 5, 7, 10].includes(idx) : [1, 3, 5, 8, 10].includes(idx);
+}
+function parseTime(s){
+  s = String(s == null ? '' : s).trim().replace(/\s*(s|sec|secs|seconds)$/i, '');
+  if (!s) return null;
+  let m = s.match(/^(\d{1,2}):([0-5]?\d)$/);
+  if (m) return +m[1] * 60 + +m[2];
+  if (/^\d{1,4}$/.test(s)) return +s;
+  return NaN;
+}
+function fmtTime(sec){
+  if (sec == null || !isFinite(sec)) return '–:––';
+  sec = Math.max(0, Math.floor(sec));
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+/*MUSIC-END*/
+
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+  const prefs = {
+    get(k, d){ try { const v = localStorage.getItem('playalong.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v){ try { localStorage.setItem('playalong.' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  const state = { loaded: false, songs: [], view: 'lib', curId: null, editId: null };
+  const sheet = $('sheet'), playBtn = $('play');
+  const P = { started:false, playing:false, ended:false, elapsed:0, f:0, speed:1, hold:false, holdT:0, last:0, raf:0, wake:null, sig:'', status:'', icon:'' };
+  let scale = +prefs.get('scale', 1) || 1;
+  let tabMode = prefs.get('tabMode', 'baritone') === 'guitar' ? 'guitar' : 'baritone';
+
+  const ICON_PLAY = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>';
+  const ICON_PAUSE = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1" fill="currentColor"/><rect x="13.5" y="5" width="4" height="14" rx="1" fill="currentColor"/></svg>';
+
+  /* ---------- data: the PlayAlong server ---------- */
+  class ApiError extends Error { constructor(status, message){ super(message); this.status = status; } }
+  async function call(method, url, body){
+    let res;
+    try {
+      res = await fetch(url, {
+        method, credentials: 'same-origin',
+        headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      });
+    } catch { throw new ApiError(0, ''); }
+    let data = null;
+    try { data = await res.json(); } catch {}
+    if (!res.ok){
+      if (res.status === 401 && url !== '/api/login') needSignIn();
+      throw new ApiError(res.status, (data && data.error) || '');
+    }
+    return data;
+  }
+  function errText(e){
+    if (!e || e.status === 0) return 'Check your connection and try again.';
+    if (e.status === 401) return 'Sign in again, then try again.';
+    return e.message || 'Check your connection and try again.';
+  }
+  async function withRetry(fn){
+    try { return await fn(); }
+    catch (e){
+      if (e && (e.status === 0 || e.status >= 502)){ await new Promise(r => setTimeout(r, 600 + Math.random() * 600)); return fn(); }
+      throw e;
+    }
+  }
+  async function saveSong(id, data){
+    const song = id ? await call('PUT', '/api/songs/' + encodeURIComponent(id), data) : await call('POST', '/api/songs', data);
+    return song.id;
+  }
+  async function patchSong(id, data){ await call('PATCH', '/api/songs/' + encodeURIComponent(id), data); }
+  async function deleteSong(id){ await call('DELETE', '/api/songs/' + encodeURIComponent(id)); }
+  function upsertLocal(id, data){
+    const i = state.songs.findIndex(s => s.id === id);
+    const row = Object.assign({ id }, data);
+    if (i >= 0) state.songs[i] = row; else state.songs.push(row);
+  }
+  const chains = new Map();
+  function queueWrite(id, fn){
+    const next = (chains.get(id) || Promise.resolve()).then(() => withRetry(fn)).catch(e => toast('Couldn’t save. ' + errText(e)));
+    chains.set(id, next);
+    return next;
+  }
+
+  async function loadSongs(){
+    const { songs } = await call('GET', '/api/songs');
+    const local = cur();
+    state.songs = songs;
+    // keep an unsent transpose tap from being undone by an older copy
+    if (local && trTimer){ const s = state.songs.find(x => x.id === local.id); if (s) s.transpose = local.transpose; }
+    state.loaded = true;
+    $('libfoot').hidden = false;
+    refresh();
+  }
+  function showBanner(t){ $('banner').textContent = t; $('banner').hidden = false; }
+  async function connect(){
+    let session;
+    try { session = await call('GET', '/api/session'); }
+    catch { state.loaded = true; showBanner('PlayAlong can’t reach its server. Check your connection, then reload the page.'); refresh(); return; }
+    if (session.storeError) showBanner('Saving is switched off to protect your songbook: ' + session.storeError);
+    else if (!session.persistentStorage) showBanner('Songs aren’t stored permanently yet. Railway clears them every time it deploys. Attach a volume to the PlayAlong service in Railway to keep them.');
+    if (!session.signedIn){ showLogin(session.passcodeSet); return; }
+    try { await loadSongs(); }
+    catch (e){ if (e.status !== 401){ state.loaded = true; showBanner('Your songs couldn’t be loaded. ' + errText(e)); refresh(); } }
+  }
+  // Back in the app after a while: pick up changes made on another device.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && state.loaded && state.view === 'lib') loadSongs().catch(() => {});
+  });
+
+  /* signing in */
+  function showLogin(passcodeSet){
+    stopPlayback();
+    show('login');
+    $('login-form').hidden = !passcodeSet;
+    $('login-hint').textContent = passcodeSet
+      ? 'Enter your passcode to open your songbook.'
+      : 'This songbook doesn’t have a passcode yet. In Railway, open the PlayAlong service, go to Variables, add APP_PASSCODE with a passcode you choose, and let it redeploy. Then reload this page.';
+    if (passcodeSet) setTimeout(() => { try { $('passcode').focus(); } catch {} }, 50);
+  }
+  function needSignIn(){ if (state.view !== 'login') showLogin(true); }
+  $('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('login-btn');
+    btn.disabled = true; $('login-err').hidden = true;
+    try {
+      await call('POST', '/api/login', { passcode: $('passcode').value });
+      $('passcode').value = '';
+      show('lib');
+      await loadSongs();
+    } catch (x){
+      $('login-err').textContent = x.status === 0 ? 'Check your connection and try again.' : (x.message || 'That didn’t work. Try again.');
+      $('login-err').hidden = false;
+    } finally { btn.disabled = false; }
+  });
+  $('signout').onclick = async () => {
+    try { await call('POST', '/api/logout', {}); } catch {}
+    state.songs = []; state.loaded = false; $('libfoot').hidden = true;
+    showLogin(true);
+  };
+  $('import-input').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const list = Array.isArray(data) ? data : data && data.songs;
+      if (!Array.isArray(list)) throw new Error('no songs');
+      const { added, skipped } = await call('POST', '/api/import', { songs: list });
+      await loadSongs();
+      toast(`Added ${added} song${added === 1 ? '' : 's'}${skipped ? `, skipped ${skipped} already here` : ''}.`);
+    } catch (x){
+      toast(x instanceof ApiError ? 'Couldn’t import. ' + errText(x) : 'That file isn’t a PlayAlong backup.');
+    }
+  });
+
+  /* ---------- views ---------- */
+  function cur(){ return state.songs.find(s => s.id === state.curId) || null; }
+  function show(view){
+    if (view !== 'edit' && state.view === 'edit') clearShots();
+    state.view = view;
+    for (const v of ['lib', 'song', 'edit', 'login']) $('v-' + v).hidden = v !== view;
+  }
+  function refresh(){
+    if (state.view === 'lib') renderList();
+    else if (state.view === 'song'){
+      const s = cur();
+      if (!s){ if (state.loaded) showLib(); return; }
+      renderHead();
+      if (sigOf(s) !== P.sig) renderSheet(true);
+      updateTransport();
+    }
+  }
+
+  /* library */
+  function sorted(){
+    return state.songs.slice().sort((a, b) => (a.title || '').localeCompare(b.title || '', undefined, { sensitivity: 'base' }));
+  }
+  function renderList(){
+    const q = $('q').value.trim().toLowerCase();
+    const all = sorted();
+    const rows = all.filter(s => !q || (s.title || '').toLowerCase().includes(q) || (s.artist || '').toLowerCase().includes(q));
+    const empty = $('lib-empty');
+    $('count').textContent = !state.loaded ? 'Opening your songbook…' : all.length === 1 ? '1 song' : all.length + ' songs';
+    $('list').innerHTML = rows.map(s => {
+      const meta = [s.artist, s.length ? fmtTime(s.length) : 'No length yet', s.bpm ? s.bpm + ' BPM' : '', s.capo ? 'Capo ' + s.capo : ''].filter(Boolean).map(esc).join(' · ');
+      const key = s.key ? (s.transpose ? transposeChord(s.key, s.transpose, preferFlats(s, s.transpose)) : s.key) : '';
+      return `<li><button class="item" type="button" data-id="${esc(s.id)}">
+        <span class="it-title">${esc(s.title || 'Untitled')}</span>
+        <span class="it-meta">${s.example ? '<span class="chip">Example</span>' : ''}<span>${meta}</span></span>
+        <span class="it-key" aria-label="Key">${esc(key)}</span></button></li>`;
+    }).join('');
+    if (!state.loaded){ empty.hidden = false; empty.innerHTML = '<p>Opening your songbook…</p>'; }
+    else if (!all.length){
+      empty.hidden = false;
+      empty.innerHTML = '<h2>Your songbook is empty</h2><p>Add a song from screenshots of a chord sheet, or paste its chords and lyrics. Chord sheets copied from websites work, and so does ChordPro.</p><button class="btn primary" type="button" data-act="new">Add your first song</button>';
+    } else if (!rows.length){ empty.hidden = false; empty.innerHTML = `<p>No songs match “${esc($('q').value.trim())}”.</p>`; }
+    else empty.hidden = true;
+  }
+  function showLib(){ stopPlayback(); show('lib'); renderList(); }
+
+  /* song sheet */
+  function sigOf(s){ return [s.body, s.transpose | 0, s.notes, s.capo, s.bpm, s.time, s.length, s.leadIn, s.outro].join('\u0001'); }
+  function renderLine(parts, T){
+    if (!parts.some(p => p.chord != null)) return `<p class="ln">${esc(parts.map(p => p.text).join('')) || '&nbsp;'}</p>`;
+    const items = [];
+    for (const p of parts){
+      p.text.split(/( +)/).forEach((tk, k) => {
+        if (k % 2 === 1) items.push(null);
+        else if (k === 0){ if (p.chord != null || tk) items.push({ chord: p.chord, text: tk }); }
+        else if (tk) items.push({ text: tk });
+      });
+    }
+    let html = '', word = '';
+    const flush = () => { if (word){ html += `<span class="w">${word}</span>`; word = ''; } };
+    for (const it of items){
+      if (it === null){ flush(); html += ' '; continue; }
+      if (it.chord != null) word += `<span class="seg"><span class="ch">${esc(T(it.chord))}</span><span class="ly">${it.text ? esc(it.text) : '&nbsp;'}</span></span>`;
+      else word += esc(it.text);
+    }
+    flush();
+    return `<p class="ln has-ch">${html}</p>`;
+  }
+  function tabHTML(lines, transposed){
+    const guitar = lines.filter(isTabLine).length === 6;
+    const conv = guitar && tabMode === 'baritone' ? convertTabToBaritone(lines) : null;
+    let note = '';
+    if (guitar){
+      const extra = [];
+      const plural = (k) => `${k} bass note${k === 1 ? '' : 's'}`;
+      if (conv && conv.doubled) extra.push(`${plural(conv.doubled)} already in the chord left out`);
+      if (conv && conv.dropped) extra.push(`${plural(conv.dropped)} with no free string left out`);
+      if (transposed) extra.push('tab isn’t transposed');
+      const label = conv ? 'Guitar tab, converted for baritone ukulele'
+        : tabMode === 'baritone' ? 'Guitar tab in a tuning PlayAlong can’t convert, shown as written' : 'Guitar tab, as written';
+      const btn = conv ? 'Show guitar original' : tabMode === 'guitar' ? 'Show for baritone' : '';
+      note = `<div class="tabnote"><span>${esc([label, ...extra].join(' · '))}</span>${btn ? `<button class="linkbtn tabtoggle" type="button">${btn}</button>` : ''}</div>`;
+    }
+    return `<div class="tabwrap">${note}<pre class="tab">${esc((conv ? conv.lines : lines).join('\n'))}</pre></div>`;
+  }
+  function sheetHTML(s){
+    const n = s.transpose | 0, flats = preferFlats(s, n);
+    const T = (c) => transposeChord(c, n, flats);
+    const out = [];
+    const facts = [];
+    if (+s.capo) facts.push(`<strong>Capo ${esc(s.capo)}</strong>`);
+    if (s.bpm) facts.push(`${esc(s.bpm)} BPM`);
+    if (s.time) facts.push(esc(s.time));
+    if (s.length) facts.push(fmtTime(s.length));
+    if (+s.leadIn) facts.push(`intro ${fmtTime(s.leadIn)}`);
+    if (+s.outro) facts.push(`outro ${fmtTime(s.outro)}`);
+    if (facts.length) out.push(`<div class="facts">${facts.map(f => `<span>${f}</span>`).join('')}</div>`);
+    if (s.notes) out.push(`<div class="notes">${esc(s.notes)}</div>`);
+    const { items } = parseSong(s.body);
+    let open = false;
+    for (const it of items){
+      if (it.type === 'gap') out.push('<div class="gap" aria-hidden="true"></div>');
+      else if (it.type === 'label') out.push(`<div class="lbl${it.chorus ? ' is-chorus' : ''}">${esc(it.text)}</div>`);
+      else if (it.type === 'start'){
+        if (open) out.push('</div>');
+        out.push(`<div class="sec sec-${it.kind}">`); open = true;
+        if (it.label) out.push(`<div class="lbl${it.kind === 'chorus' ? ' is-chorus' : ''}">${esc(it.label)}</div>`);
+      }
+      else if (it.type === 'end'){ if (open){ out.push('</div>'); open = false; } }
+      else if (it.type === 'chords') out.push(`<p class="ln only">${it.chords.map(c => `<span class="ch">${esc(T(c))}</span>`).join('')}</p>`);
+      else if (it.type === 'line') out.push(renderLine(it.parts, T));
+      else if (it.type === 'tab') out.push(tabHTML(it.lines, n));
+    }
+    if (open) out.push('</div>');
+    if (!items.length) out.push('<p class="sheet-empty">No chords or lyrics yet. Tap Edit to add them.</p>');
+    return out.join('');
+  }
+  function maxScroll(){ return Math.max(0, sheet.scrollHeight - sheet.clientHeight); }
+  function currentFrac(){ const m = maxScroll(); return P.playing ? P.f : (m ? sheet.scrollTop / m : 0); }
+  function renderSheet(keep){
+    const s = cur(); if (!s) return;
+    const frac = keep ? currentFrac() : 0;
+    $('sheet-inner').innerHTML = sheetHTML(s);
+    P.sig = sigOf(s);
+    sheet.scrollTop = frac * maxScroll();
+    if (!P.playing) P.f = frac;
+  }
+  function renderHead(){
+    const s = cur(); if (!s) return;
+    $('s-title').textContent = s.title || 'Untitled';
+    $('s-artist').textContent = s.artist || '';
+    $('s-artist').hidden = !s.artist;
+    const n = s.transpose | 0;
+    const key = s.key ? transposeChord(s.key, n, preferFlats(s, n)) : (n ? '' : '—');
+    $('tr-val').innerHTML = `${esc(key)}${n ? `<small>${n > 0 ? '+' : '−'}${Math.abs(n)}</small>` : ''}`;
+    $('tr-val').setAttribute('aria-label', n ? `Transposed ${n > 0 ? 'up' : 'down'} ${Math.abs(n)}. Tap to go back to the original key` : 'Original key');
+  }
+  function openSong(id){
+    stopPlayback();
+    state.curId = id;
+    Object.assign(P, { started:false, ended:false, elapsed:0, f:0, speed:1, sig:'', status:'', icon:'' });
+    show('song');
+    sheet.style.setProperty('--scale', scale);
+    if (!cur()){ $('sheet-inner').innerHTML = '<p class="sheet-empty">Opening song…</p>'; return; }
+    renderHead();
+    renderSheet(false);
+    sheet.scrollTop = 0;
+    updateTransport();
+    try { sheet.focus({ preventScroll: true }); } catch {}
+  }
+
+  /* ---------- auto-scroll ---------- */
+  // The sheet scrolls only through the singing: length minus the intro and outro.
+  function scrollSecs(s){ const L = +s.length || 0; return L > 0 ? Math.max(5, L - (+s.leadIn || 0) - (+s.outro || 0)) : 0; }
+  function frame(ts){
+    P.raf = 0;
+    const s = cur();
+    if (!s || !P.playing) return;
+    const dt = P.last ? Math.min(0.25, (ts - P.last) / 1000) : 0;
+    P.last = ts;
+    P.elapsed += dt;
+    const dur = scrollSecs(s);
+    if (P.elapsed >= (+s.leadIn || 0) && dur && !P.hold && P.f < 1){
+      P.f = Math.min(1, P.f + dt * P.speed / dur);
+      sheet.scrollTop = P.f * maxScroll();
+    }
+    // after the last line, keep the clock running through the outro, then stop
+    if (P.f >= 1 && P.elapsed >= (+s.length || 0)){ P.playing = false; P.ended = true; releaseWake(); updateTransport(); return; }
+    updateTransport();
+    P.raf = requestAnimationFrame(frame);
+  }
+  function play(){
+    const s = cur(); if (!s) return;
+    if (!scrollSecs(s)){ updateTransport(); toast('Add the song’s length first, so PlayAlong knows how fast to go.'); return; }
+    if (P.ended || (!P.started && currentFrac() >= 0.999)){ resetSong(); }
+    const m = maxScroll();
+    P.f = m ? Math.min(1, sheet.scrollTop / m) : 0;
+    P.playing = true; P.started = true; P.last = 0; P.hold = false;
+    requestWake();
+    if (!P.raf) P.raf = requestAnimationFrame(frame);
+    updateTransport();
+  }
+  function pause(){
+    P.playing = false;
+    if (P.raf) cancelAnimationFrame(P.raf);
+    P.raf = 0;
+    releaseWake();
+    updateTransport();
+  }
+  function toggle(){ P.playing ? pause() : play(); }
+  function stopPlayback(){ pause(); P.hold = false; clearTimeout(P.holdT); }
+  function resetSong(){
+    stopPlayback();
+    Object.assign(P, { started:false, ended:false, elapsed:0, f:0 });
+    sheet.scrollTop = 0;
+    updateTransport();
+  }
+  function jump(dir){
+    const m = maxScroll();
+    const top = Math.max(0, Math.min(m, sheet.scrollTop + dir * sheet.clientHeight * 0.8));
+    sheet.scrollTop = top;
+    P.f = m ? top / m : 0;
+    if (P.ended && dir < 0) P.ended = false;
+    updateTransport();
+  }
+  function setSpeed(v){ P.speed = Math.round(Math.min(2, Math.max(0.5, v)) * 100) / 100; updateTransport(); }
+
+  async function requestWake(){
+    try {
+      if ('wakeLock' in navigator && !P.wake){
+        P.wake = await navigator.wakeLock.request('screen');
+        P.wake.addEventListener && P.wake.addEventListener('release', () => { P.wake = null; });
+      }
+    } catch { P.wake = null; }
+  }
+  function releaseWake(){ try { P.wake && P.wake.release(); } catch {} P.wake = null; }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && P.playing) requestWake(); });
+
+  function updateTransport(){
+    const s = cur(); if (!s) return;
+    const L = +s.length || 0, lead = +s.leadIn || 0;
+    $('clock').innerHTML = `${fmtTime(P.elapsed)} <span>/ ${L ? fmtTime(L) : '–:––'}</span>`;
+    $('prog-fill').style.transform = `scaleX(${P.f.toFixed(4)})`;
+    const icon = P.playing ? 'pause' : 'play';
+    if (P.icon !== icon){
+      P.icon = icon;
+      playBtn.innerHTML = P.playing ? ICON_PAUSE : ICON_PLAY;
+      playBtn.setAttribute('aria-label', P.playing ? 'Pause scrolling' : 'Start scrolling');
+    }
+    $('sp-val').textContent = Math.round(P.speed * 100) + '%';
+    let msg;
+    if (!L) msg = 'Auto-scroll needs the song’s length.';
+    else if (P.ended) msg = 'End of song. Tap ⤒ to go back to the top.';
+    else if (P.playing && P.elapsed < lead) msg = `Intro. Scrolling starts in ${Math.ceil(lead - P.elapsed)}…`;
+    else if (P.playing && P.f >= 1) msg = `Outro. The song ends in ${fmtTime(Math.max(0, L - P.elapsed) + 0.999)}.`;
+    else if (P.playing) msg = 'Tap the sheet to pause. Drag it to catch up.';
+    else if (P.started) msg = 'Paused. Tap the sheet or ▶ to keep going.';
+    else if (lead) msg = `Press ▶. The sheet waits ${fmtTime(lead)} for the intro, then scrolls through the singing in ${fmtTime(scrollSecs(s))}.`;
+    else msg = `Press ▶ and the sheet scrolls through the singing in ${fmtTime(scrollSecs(s))}.`;
+    if (msg !== P.status){ P.status = msg; $('status').textContent = msg; }
+    $('need-len').hidden = !!L;
+    // count-in pulse at the song's tempo while the start delay runs
+    const bpm = +s.bpm || 0;
+    if (P.playing && bpm && P.elapsed < lead){
+      const beats = P.elapsed * bpm / 60, num = parseInt(s.time, 10) || 4;
+      const on = (beats % 1) < 0.2;
+      playBtn.classList.toggle('beat', on);
+      playBtn.classList.toggle('down', on && Math.floor(beats) % num === 0);
+    } else { playBtn.classList.remove('beat', 'down'); }
+    const showStrip = !!L && P.speed !== 1;
+    $('strip').hidden = !showStrip;
+    if (showStrip){
+      const newLen = Math.round(L - scrollSecs(s) + scrollSecs(s) / P.speed);
+      const txt = `At ${Math.round(P.speed * 100)}% the song takes ${fmtTime(newLen)}.`;
+      if ($('strip-text').textContent !== txt) $('strip-text').textContent = txt;
+    }
+  }
+
+  // Manual drags pause the auto-scroll under your finger, then it carries on from wherever you let go.
+  function holdStart(){ if (!P.playing) return; P.hold = true; clearTimeout(P.holdT); }
+  function holdRelease(){
+    if (!P.hold) return;
+    clearTimeout(P.holdT);
+    P.holdT = setTimeout(() => { const m = maxScroll(); if (m) P.f = Math.min(1, sheet.scrollTop / m); P.hold = false; }, 350);
+  }
+  sheet.addEventListener('touchstart', holdStart, { passive: true });
+  sheet.addEventListener('touchend', holdRelease, { passive: true });
+  sheet.addEventListener('mousedown', holdStart);
+  window.addEventListener('mouseup', holdRelease);
+  sheet.addEventListener('wheel', () => { holdStart(); holdRelease(); }, { passive: true });
+  sheet.addEventListener('scroll', () => { if (P.hold) holdRelease(); }, { passive: true });
+  sheet.addEventListener('click', (e) => {
+    if (e.target.closest('.tabtoggle')){
+      tabMode = tabMode === 'baritone' ? 'guitar' : 'baritone';
+      prefs.set('tabMode', tabMode);
+      renderSheet(true);
+      return;
+    }
+    if (P.started && !P.ended) toggle();
+  });
+
+  // Bluetooth page-turner pedals send these keys
+  document.addEventListener('keydown', (e) => {
+    if (state.view !== 'song') return;
+    if (e.target && e.target.closest && e.target.closest('input, textarea')) return;
+    const k = e.key;
+    if (k === ' ' || (k === 'Enter' && !(e.target && e.target.tagName === 'BUTTON'))){ e.preventDefault(); toggle(); }
+    else if (k === 'PageDown' || k === 'ArrowDown' || k === 'ArrowRight'){ e.preventDefault(); jump(1); }
+    else if (k === 'PageUp' || k === 'ArrowUp' || k === 'ArrowLeft'){ e.preventDefault(); jump(-1); }
+  });
+
+  /* ---------- song controls ---------- */
+  let trTimer = 0;
+  function changeTranspose(d){
+    const s = cur(); if (!s) return;
+    let n = d === 0 ? 0 : ((((s.transpose | 0) + d) % 12) + 12) % 12;
+    if (n > 6) n -= 12;
+    if (n === (s.transpose | 0)) return;
+    s.transpose = n;
+    renderHead(); renderSheet(true);
+    clearTimeout(trTimer);
+    const id = s.id;
+    trTimer = setTimeout(() => { trTimer = 0; queueWrite(id, () => patchSong(id, { transpose: n })); }, 600);
+  }
+  function changeScale(d){
+    const frac = currentFrac();
+    scale = Math.round(Math.min(2.2, Math.max(0.7, scale + d)) * 100) / 100;
+    sheet.style.setProperty('--scale', scale);
+    prefs.set('scale', scale);
+    sheet.scrollTop = frac * maxScroll();
+    if (!P.playing) P.f = frac;
+  }
+  $('tr-down').onclick = () => changeTranspose(-1);
+  $('tr-up').onclick = () => changeTranspose(1);
+  $('tr-val').onclick = () => changeTranspose(0);
+  $('fs-down').onclick = () => changeScale(-0.1);
+  $('fs-up').onclick = () => changeScale(0.1);
+  $('play').onclick = toggle;
+  $('reset').onclick = resetSong;
+  $('sp-down').onclick = () => setSpeed(P.speed - 0.05);
+  $('sp-up').onclick = () => setSpeed(P.speed + 0.05);
+  $('sp-reset').onclick = () => setSpeed(1);
+  $('sp-save').onclick = () => {
+    const s = cur(); if (!s || !s.length) return;
+    const newLen = Math.round(s.length - scrollSecs(s) + scrollSecs(s) / P.speed);
+    s.length = newLen; P.speed = 1;
+    const id = s.id;
+    queueWrite(id, () => patchSong(id, { length: newLen }));
+    renderSheet(true); updateTransport();
+    toast(`Saved. This song now scrolls in ${fmtTime(newLen)}.`);
+  };
+  $('back').onclick = showLib;
+  $('s-edit').onclick = () => openEditor(state.curId);
+  $('need-len').onclick = () => { openEditor(state.curId); setTimeout(() => $('f-length').focus(), 50); };
+
+  /* ---------- library controls ---------- */
+  $('q').addEventListener('input', renderList);
+  $('list').addEventListener('click', (e) => { const b = e.target.closest('[data-id]'); if (b) openSong(b.dataset.id); });
+  $('lib-empty').addEventListener('click', (e) => { if (e.target.closest('[data-act="new"]')) openEditor(null); });
+  $('btn-new').onclick = () => openEditor(null);
+
+  /* ---------- editor ---------- */
+  let delArmed = false, delTimer = 0;
+  function disarmDelete(){ delArmed = false; clearTimeout(delTimer); $('ed-del').textContent = 'Delete song'; $('ed-del').classList.remove('armed'); }
+  function showErr(t){ $('ed-err').textContent = t; $('ed-err').hidden = !t; }
+  function openEditor(id){
+    stopPlayback();
+    state.editId = id || null;
+    const s = (id && state.songs.find(x => x.id === id)) || {};
+    $('ed-heading').textContent = id ? 'Edit song' : 'New song';
+    $('f-title').value = s.title || '';
+    $('f-artist').value = s.artist || '';
+    $('f-key').value = s.key || '';
+    $('f-capo').value = +s.capo ? String(s.capo) : '';
+    $('f-time').value = s.time || '';
+    $('f-length').value = s.length ? fmtTime(s.length) : '';
+    $('f-lead').value = +s.leadIn ? fmtTime(s.leadIn) : '';
+    $('f-outro').value = +s.outro ? fmtTime(s.outro) : '';
+    $('f-bpm').value = s.bpm ? String(s.bpm) : '';
+    $('f-notes').value = s.notes || '';
+    $('f-body').value = s.body || '';
+    $('ed-del-wrap').hidden = !id;
+    disarmDelete(); showErr(''); clearShots();
+    show('edit');
+    $('v-edit').querySelector('.scroll').scrollTop = 0;
+  }
+  function readForm(){
+    const v = (id) => $(id).value.trim();
+    const body = $('f-body').value.replace(/\s+$/, '');
+    const meta = parseSong(body).meta;
+    const out = {
+      title: v('f-title') || meta.title || '',
+      artist: v('f-artist') || meta.artist || '',
+      key: v('f-key') || meta.key || '',
+      time: v('f-time') || meta.time || '',
+      notes: $('f-notes').value.replace(/\s+$/, ''),
+      body,
+    };
+    const capoRaw = v('f-capo') || meta.capo || '';
+    out.capo = capoRaw ? Number(capoRaw) : 0;
+    if (!Number.isInteger(out.capo) || out.capo < 0 || out.capo > 12) throw ['f-capo', 'Capo should be a fret number from 0 to 12.'];
+    const bpmRaw = v('f-bpm') || meta.bpm || '';
+    out.bpm = bpmRaw ? Math.round(Number(bpmRaw)) : null;
+    if (out.bpm != null && !(out.bpm >= 20 && out.bpm <= 320)) throw ['f-bpm', 'Tempo should be a number of beats per minute, like 96.'];
+    const len = parseTime(v('f-length') || meta.length || '');
+    if (Number.isNaN(len)) throw ['f-length', 'Write the length as minutes and seconds, like 3:45.'];
+    out.length = len || null;
+    const lead = parseTime(v('f-lead'));
+    if (Number.isNaN(lead)) throw ['f-lead', 'Write the intro as minutes and seconds, like 0:20.'];
+    out.leadIn = lead || 0;
+    const outro = parseTime(v('f-outro'));
+    if (Number.isNaN(outro)) throw ['f-outro', 'Write the outro as minutes and seconds, like 1:30.'];
+    out.outro = outro || 0;
+    if (out.length && out.leadIn + out.outro > out.length - 10) throw ['f-lead', 'The intro and outro together have to be shorter than the song, with time left for the singing.'];
+    if (!out.title) throw ['f-title', 'Give the song a title.'];
+    return out;
+  }
+  $('ed-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    let data;
+    try { data = readForm(); }
+    catch (x){ if (Array.isArray(x)){ showErr(x[1]); $(x[0]).focus(); return; } throw x; }
+    showErr('');
+    const prev = state.editId ? state.songs.find(s => s.id === state.editId) : null;
+    data.transpose = prev ? (prev.transpose | 0) : 0;
+    data.updatedAt = Date.now();
+    const btn = $('ed-save');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      const editId = state.editId;
+      const id = await (editId ? queueWrite(editId, () => saveSong(editId, data)).then(() => editId) : withRetry(() => saveSong(null, data)));
+      upsertLocal(id, data);
+      openSong(id);
+      toast(editId ? 'Song saved' : 'Song added');
+    } catch (x){ showErr('Couldn’t save the song. ' + errText(x)); }
+    finally { btn.disabled = false; btn.textContent = 'Save'; }
+  });
+  $('ed-cancel').onclick = () => { state.editId && cur() && state.editId === state.curId ? openSong(state.editId) : showLib(); };
+  $('ed-del').onclick = async () => {
+    if (!delArmed){
+      delArmed = true;
+      $('ed-del').textContent = 'Tap again to delete';
+      $('ed-del').classList.add('armed');
+      delTimer = setTimeout(disarmDelete, 4000);
+      return;
+    }
+    disarmDelete();
+    const id = state.editId;
+    try {
+      await withRetry(() => deleteSong(id));
+      state.songs = state.songs.filter(s => s.id !== id);
+      showLib();
+      toast('Song deleted');
+    } catch (x){ showErr('Couldn’t delete the song. ' + errText(x)); }
+  };
+
+  /* ---------- read a chord sheet from screenshots ---------- */
+  // Everything happens on the phone: Tesseract reads the text and each word's position, then
+  // PlayAlong drops website clutter, puts the screenshots in order and removes the lines two
+  // screenshots share. Nothing about the song leaves the phone except the saved result.
+  let shotsReady = true, shotsBlocked = false;
+  let shots = [], readCtl = null, pendingBody = null;
+  const MAX_SHOTS = 10, MAX_SHOT_BYTES = 20e6;
+
+  function setShotStatus(t){ $('shot-status').textContent = t; $('shot-status').hidden = !t; }
+  function renderShots(){
+    $('shot-list').innerHTML = shots.map((s, i) =>
+      `<li><img src="${s.url}" alt="Screenshot ${i + 1}"><span class="n">${i + 1}</span><button type="button" class="x" data-i="${i}" aria-label="Remove screenshot ${i + 1}">×</button></li>`).join('');
+    $('shot-list').hidden = !shots.length;
+    $('shot-read').disabled = !shots.length || !!readCtl || shotsBlocked;
+    $('shot-read').textContent = shots.length === 1 ? 'Read screenshot' : shots.length ? `Read ${shots.length} screenshots` : 'Read screenshots';
+  }
+  function clearShots(){
+    if (readCtl) readCtl.abort();
+    for (const s of shots) URL.revokeObjectURL(s.url);
+    shots = []; pendingBody = null;
+    $('shot-unsure').hidden = true; $('shot-choice').hidden = true;
+    setShotStatus('');
+    renderShots();
+  }
+  function addShots(files){
+    if (!shotsReady || shotsBlocked) return;
+    let skipped = 0, over = 0;
+    for (const f of files){
+      if (!f || !/^image\//.test(f.type) || f.size > MAX_SHOT_BYTES){ skipped++; continue; }
+      if (shots.length >= MAX_SHOTS){ over++; continue; }
+      shots.push({ file: f, url: URL.createObjectURL(f) });
+    }
+    renderShots();
+    const msgs = [];
+    if (skipped) msgs.push(`${skipped === 1 ? 'One file isn’t a picture' : skipped + ' files aren’t pictures'} PlayAlong can read. Use PNG or JPEG screenshots.`);
+    if (over) msgs.push(`You can read up to ${MAX_SHOTS} screenshots at a time. Read these first, then add the rest with “Add to the end”.`);
+    setShotStatus(msgs.join(' '));
+  }
+
+  /* tidying what was read */
+  const NAV_WORD = /^(home|scroll|edit|search|more|menu|share|tools|print|settings|account|favou?rites?|playlist|transpose|autoscroll|download)$/i;
+  const DOMAIN = /\b([a-z0-9-]+)\.(com|net|org|co|io|app|info|us|uk|de|fr|es|it|nl|ca|au)\b/i;
+  // Drop the phone's clock, the browser's address bar, the site's own header and menu bar, and symbol soup.
+  function cleanScreen(rows){
+    const sites = new Set();
+    for (const r of rows){ const m = r.text.match(DOMAIN); if (m) sites.add(m[1].toLowerCase()); }
+    let dropped = 0;
+    const kept = rows.filter(r => {
+      const t = r.text.trim();
+      if (!t) return true;
+      const toks = t.split(/\s+/);
+      const junk =
+        /^\d{1,2}\s*:\s*\d{2}\b/.test(t) ||                                                        // phone clock
+        (DOMAIN.test(t) && t.replace(/\S*\.\S+/g, '').replace(/(^|\s)\S{1,2}(?=\s|$)/g, ' ').trim().length < 12) ||   // address bar
+        (toks.length <= 7 && toks.some(k => sites.has(k.toLowerCase().replace(/[^a-z0-9-]/g, '')))) ||   // the site's own header
+        (toks.filter(k => NAV_WORD.test(k)).length >= 3 && toks.filter(k => NAV_WORD.test(k)).length >= toks.length * 0.6) ||   // menu bar
+        t.replace(/[\s\w#'’",.!?()\-:;\/|*&]/g, '').length > Math.max(2, t.replace(/\s/g, '').length * 0.25) ||   // symbol soup
+        (toks.length <= 3 && !isChordLine(t) && !LABEL_RE.test(t.replace(/^\(|\)$/g, '').trim()) &&
+          (r.conf < 60 || toks.every(k => /^([A-Z])\1+$/.test(k) || /^[a-z]{1,2}$/.test(k))));   // a short scrap, like icons read as "TTT ee"
+      if (junk) dropped++;
+      return !junk;
+    });
+    while (kept.length && !kept[0].text.trim()) kept.shift();
+    while (kept.length && !kept[kept.length - 1].text.trim()) kept.pop();
+    return { lines: kept.map(r => r.text).filter((t, i, a) => t.trim() || (i > 0 && a[i - 1].trim())), dropped };
+  }
+  const normLine = (t) => t.toLowerCase().replace(/[^a-z0-9#]/g, '');
+  function likeness(a, b){
+    const m = a.length, n = b.length;
+    if (!m || !n) return 0;
+    let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++){
+      const cur = [i];
+      for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = cur;
+    }
+    return 1 - prev[n] / Math.max(m, n);
+  }
+  // Two readings of the same line; one may be faded or cut off at the top of a screenshot.
+  function sameLine(a, b){
+    const x = normLine(a), y = normLine(b);
+    if (!x || !y) return false;
+    if (x === y) return true;
+    const [s, l] = x.length <= y.length ? [x, y] : [y, x];
+    if (s.length >= 6 && l.startsWith(s) && s.length >= l.length * 0.6) return true;
+    return likeness(x, y) >= 0.85;
+  }
+  // How many lines at the end of A are repeated at the top of B, and where B's new part starts.
+  function overlapOf(A, B){
+    const a = A.map((_, i) => i).filter(i => A[i].trim()), b = B.map((_, i) => i).filter(i => B[i].trim());
+    let best = { k: 0, cut: 0 };
+    for (let j = 0; j < Math.min(4, b.length); j++){            // B may start with a faded scrap or two
+      for (let k = Math.min(a.length, b.length - j); k >= 2; k--){
+        let ok = true;
+        for (let t = 0; t < k && ok; t++) ok = sameLine(A[a[a.length - k + t]], B[b[j + t]]);
+        if (ok){ if (k > best.k) best = { k, cut: b[j + k - 1] + 1, at: j }; break; }
+      }
+    }
+    if (best.k){
+      // If the shared lines also turn up elsewhere in either screenshot, they are a repeated section
+      // (a chorus), not an overlap: keep both copies rather than risk dropping one.
+      const run = b.slice(best.at, best.at + best.k).map(i => B[i]);
+      const mark = run.reduce((x, y) => normLine(y).length > normLine(x).length ? y : x, run[0]);
+      const seen = a.filter(i => sameLine(A[i], mark)).length + b.filter(i => sameLine(B[i], mark)).length;
+      if (seen > 2) return { k: 0, cut: 0 };
+    }
+    return best;
+  }
+  // Where a screenshot sits in the song, judged from what it shows.
+  function songPlace(lines){
+    const t = lines.join('\n').toLowerCase();
+    if (/\bintro\b|words and music|\bkey\s*:|\bcapo\b|\bverse\s*1\b/.test(t)) return 0;
+    const v = [...t.matchAll(/\bverse\s*(\d+)/g)].map(m => +m[1]);
+    return v.length ? Math.min(...v) : 50;
+  }
+  // Put the screenshots in song order and stitch them, dropping the lines they share.
+  function stitch(screens){
+    const n = screens.length;
+    const place = screens.map(songPlace);
+    // A chorus that ends one screenshot and starts the next looks just like an overlap, so only
+    // join screenshots in an order their verse numbers allow (verse 4 never runs into verse 3).
+    const ov = screens.map((A, i) => screens.map((B, j) =>
+      i === j || (place[i] < 50 && place[j] < 50 && place[j] < place[i]) ? { k: 0, cut: 0 } : overlapOf(A, B)));
+    const used = new Set(), parts = [];
+    let joined = 0;
+    const pickStart = () => {
+      let best = -1, bestKey = null;
+      for (let j = 0; j < n; j++){
+        if (used.has(j)) continue;
+        const incoming = screens.some((_, i) => i !== j && !used.has(i) && ov[i][j].k >= 2) ? 1 : 0;
+        // prefer: nothing leads into it, then earliest in the song, then the order you picked them
+        const key = [incoming, place[j], j];
+        const earlier = !bestKey || (key[0] !== bestKey[0] ? key[0] < bestKey[0] : key[1] !== bestKey[1] ? key[1] < bestKey[1] : key[2] < bestKey[2]);
+        if (earlier){ best = j; bestKey = key; }
+      }
+      return best;
+    };
+    let cur = pickStart();
+    used.add(cur); parts.push(screens[cur]);
+    while (used.size < n){
+      let next = -1, k = 1;
+      for (let j = 0; j < n; j++) if (!used.has(j) && ov[cur][j].k > k){ next = j; k = ov[cur][j].k; }
+      if (next >= 0){ parts.push(screens[next].slice(ov[cur][next].cut)); joined++; }
+      else { next = pickStart(); parts.push(screens[next]); }
+      used.add(next); cur = next;
+    }
+    const lines = parts.flat().filter((t, i, a) => t.trim() || (i > 0 && a[i - 1].trim()));
+    while (lines.length && !lines[0].trim()) lines.shift();
+    return { body: lines.join('\n').replace(/\s+$/, ''), joined };
+  }
+
+  /* on-device text recognition */
+  // Tesseract.js (Apache-2.0) loads from the jsDelivr CDN at pinned versions. The English language data
+  // (the official @tesseract.js-data/eng 1.0.0 file) is served by PlayAlong from /ocr; the browser keeps
+  // a copy after the first read, so later reads start faster.
+  const OCR_LIB = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/';
+  const OCR_CORE = 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1';
+  const OCR_LANG = new URL('/ocr', location.href).href;
+  let ocrProgress = null;
+  function loadScript(src){
+    return new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = src; el.onload = resolve; el.onerror = () => reject(new Error('could not load ' + src.split('/').pop()));
+      document.head.appendChild(el);
+    });
+  }
+  // Returns the worker plus `failed`, a promise that rejects if the engine reports an error,
+  // so a broken start or a stalled page never leaves the screen waiting forever.
+  async function startOcr(){
+    let fail;
+    const failed = new Promise((_, reject) => { fail = reject; });
+    failed.catch(() => {});
+    if (!window.Tesseract) await loadScript(OCR_LIB + 'tesseract.min.js');
+    const timer = setTimeout(() => fail(new Error('the text reader took too long to start')), 90000);
+    try {
+      const worker = await Promise.race([
+        window.Tesseract.createWorker('eng', 1, {
+          workerPath: OCR_LIB + 'worker.min.js', corePath: OCR_CORE, langPath: OCR_LANG,
+          workerBlobURL: true, gzip: true,
+          logger: (m) => { if (ocrProgress) ocrProgress(m); },
+          errorHandler: (e) => fail(new Error(typeof e === 'string' ? e : (e && e.message) || 'engine error')),
+        }),
+        failed,
+      ]);
+      await Promise.race([worker.setParameters({ preserve_interword_spaces: '1' }), failed]);
+      return { worker, failed };
+    } finally { clearTimeout(timer); }
+  }
+  // Grey from the darkest colour channel, so light-coloured chord names stay dark enough to read;
+  // a dark-mode page is flipped to dark text on light.
+  async function prepShot(file){
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(2, 1100 / bmp.width);
+    const w = Math.round(bmp.width * scale), h = Math.round(bmp.height * scale);
+    const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
+    const img = g.getImageData(0, 0, w, h), d = img.data;
+    let sum = 0;
+    for (let i = 0; i < d.length; i += 4){ const v = Math.min(d[i], d[i + 1], d[i + 2]); d[i] = d[i + 1] = d[i + 2] = v; sum += v; }
+    if (sum / (d.length / 4) < 110) for (let i = 0; i < d.length; i += 4){ const v = 255 - d[i]; d[i] = d[i + 1] = d[i + 2] = v; }
+    g.putImageData(img, 0, 0);
+    return c;
+  }
+  // Rebuild the page as lines of text, keeping each word at its horizontal position so chords stay over
+  // their words; each line carries the reader's confidence.
+  // Fixes the misreadings chord sheets cause most: a missing space between two words ("farand"),
+  // chords read as one word ("F#mA", "Intro-EF#m") and the word "I" read as "|".
+  function chordRun(t){
+    if (CHORD_RE.test(t) || SYM_RE.test(t)) return [t];
+    for (let i = t.length - 1; i > 0; i--){
+      if (!/[A-G]/.test(t[i])) continue;
+      const a = t.slice(0, i);
+      if (!CHORD_RE.test(a)) continue;
+      const rest = chordRun(t.slice(i));
+      if (rest) return [a, ...rest];
+    }
+    return null;
+  }
+  function median(a){ if (!a.length) return 0; const b = a.slice().sort((x, y) => x - y); return b[Math.floor(b.length / 2)]; }
+  const isLyricWords = (ws) => ws.some(w => /[a-z]{3,}/.test(w.text));
+  function wordGaps(words){ const g = []; for (let i = 1; i < words.length; i++){ const d = words[i].bbox.x0 - words[i - 1].bbox.x1; if (d > 0) g.push(d); } return g; }
+  function layoutLines(lines){
+    // How wide a real space is: the median gap between separate words on lyric lines. Comparing
+    // against that, not letter height, keeps typewriter fonts (wide gaps beside "r", "i") intact.
+    const sorted = (ls) => ls.map(l => (l.words || []).filter(w => w.text && w.text.trim()).sort((a, b) => a.bbox.x0 - b.bbox.x0));
+    const allWords = sorted(lines);
+    const pageSpace = median(allWords.filter(isLyricWords).flatMap(wordGaps));
+    const rows = [];
+    for (let li = 0; li < lines.length; li++){
+      const l = lines[li];
+      const words = allWords[li];
+      if (!words.length) continue;
+      const lineGaps = isLyricWords(words) ? wordGaps(words) : [];
+      const space = lineGaps.length ? Math.min(median(lineGaps), pageSpace || Infinity) : pageSpace;
+      let pieces = [];
+      for (const w of words){
+        const text = w.text.trim();
+        const syms = (w.symbols || []).filter(s => s.text && s.text.trim());
+        if (syms.length > 1 && syms.map(s => s.text).join('') === text){
+          // split a "word" wherever the gap between two letters is as wide as a real space
+          let cur = [syms[0]];
+          const flush = () => { pieces.push({ text: cur.map(s => s.text).join(''), x0: cur[0].bbox.x0, syms: cur }); };
+          for (let i = 1; i < syms.length; i++){
+            const gap = syms[i].bbox.x0 - syms[i - 1].bbox.x1;
+            const glue = /^[',.;:!?’”)\]]/.test(syms[i].text) || /^['‘“(\[]$/.test(syms[i - 1].text);
+            if (space && gap >= space * 0.75 && !glue){ flush(); cur = [syms[i]]; } else cur.push(syms[i]);
+          }
+          flush();
+        } else pieces.push({ text, x0: w.bbox.x0, syms: syms.length === text.length ? syms : null });
+      }
+      const lyric = pieces.some(p => /[a-z]{3,}/.test(p.text) && !/^(intro|outro|verse|chorus|bridge|solo|riff|tag|ending|interlude|instrumental)$/i.test(p.text.replace(/[-:].*$/, '')));
+      const fixed = [];
+      for (const p of pieces){
+        if (lyric){
+          // a lone "|" in a line of words is the word "I"
+          if (p.text === '|' || /^\|(?=['’a-z])/.test(p.text)) p.text = 'I' + p.text.slice(1);
+          fixed.push(p); continue;
+        }
+        // chord rows: pull apart chords read as one word ("F#mA", "AE", "Intro-EF#m"),
+        // placing each at its own letter's position
+        const m = p.text.match(/^([A-Za-z]{3,}\s*[-:])(.+)$/);
+        const head = m ? m[1] : '', tail = m ? m[2] : p.text;
+        const parts = chordRun(tail);
+        if (!parts || (parts.length === 1 && !head)){ fixed.push(p); continue; }
+        const cw = p.syms && p.syms.length ? (p.syms[p.syms.length - 1].bbox.x1 - p.syms[0].bbox.x0) / p.text.length : 0;
+        const xAt = (k) => (p.syms && p.syms[k] ? p.syms[k].bbox.x0 : p.x0 + k * cw);
+        let at = 0;
+        if (head){ fixed.push({ text: head, x0: p.x0 }); at = head.length; }
+        for (const part of parts){ fixed.push({ text: part, x0: xAt(at) }); at += part.length; }
+      }
+      pieces = fixed;
+      const conf = words.reduce((a, w) => a + (typeof w.conf === 'number' ? w.conf : 90), 0) / words.length;
+      rows.push({ y0: l.bbox.y0, y1: l.bbox.y1, conf, pieces: pieces.sort((a, b) => a.x0 - b.x0) });
+    }
+    if (!rows.length) return [];
+    rows.sort((a, b) => a.y0 - b.y0);
+    const widths = [];
+    for (const r of rows) for (const p of r.pieces) if (p.text.length >= 3 && p.syms) widths.push((p.syms[p.syms.length - 1].bbox.x1 - p.syms[0].bbox.x0) / p.text.length);
+    widths.sort((a, b) => a - b);
+    const cw = widths.length ? widths[Math.floor(widths.length / 2)] : 12;
+    const heights = rows.map(r => r.y1 - r.y0).sort((a, b) => a - b);
+    const lh = heights[Math.floor(heights.length / 2)] || 20;
+    const left = Math.min(...rows.map(r => r.pieces[0].x0));
+    const out = []; let prev = null;
+    for (const r of rows){
+      if (prev != null && r.y0 - prev > lh * 1.6) out.push({ text: '', conf: 100 });
+      let s = '';
+      for (const p of r.pieces){
+        const col = Math.max(0, Math.round((p.x0 - left) / cw));
+        s = s.length && s.length >= col ? s + ' ' : s.padEnd(col, ' ');
+        s += p.text;
+      }
+      out.push({ text: s.replace(/\s+$/, ''), conf: r.conf });
+      prev = r.y1;
+    }
+    return out;
+  }
+  function layoutText(data){
+    const lines = [];
+    for (const b of (data && data.blocks) || []) for (const p of b.paragraphs || []) for (const l of p.lines || []){
+      lines.push({ bbox: l.bbox, words: (l.words || []).map(w => ({ text: w.text || '', bbox: w.bbox, conf: w.confidence,
+        symbols: (w.symbols || []).map(sy => ({ text: sy.text || '', bbox: sy.bbox })) })) });
+    }
+    return layoutLines(lines);
+  }
+  async function ocrShots(files, ctl, say){
+    say('Getting the text reader ready. The first time takes a few seconds…');
+    let worker = null, failed = null;
+    try { ({ worker, failed } = await startOcr()); }
+    catch (e){ throw { code: 'ocr_failed', detail: (e && e.message) || String(e) }; }
+    try {
+      const texts = [];
+      for (let k = 0; k < files.length; k++){
+        if (ctl.signal.aborted) throw { code: 'cancelled' };
+        const label = files.length === 1 ? 'Reading the text in your screenshot' : `Reading the text in screenshot ${k + 1} of ${files.length}`;
+        say(label + '…');
+        ocrProgress = (m) => { if (m && m.status === 'recognizing text') say(`${label}… ${Math.round((m.progress || 0) * 100)}%`); };
+        const canvas = await prepShot(files[k]);
+        const { data } = await Promise.race([worker.recognize(canvas, {}, { blocks: true, text: true }), failed]);
+        texts.push(layoutText(data));
+      }
+      return texts;
+    } catch (e){
+      if (e && e.code) throw e;
+      throw { code: 'ocr_failed', detail: (e && e.message) || String(e) };
+    } finally {
+      ocrProgress = null;
+      try { await worker.terminate(); } catch {}
+    }
+  }
+
+  function readErr(e){
+    switch (e && e.code){
+      case 'cancelled': return 'Stopped. Nothing was changed.';
+      case 'no_text': return 'No text was found in these screenshots. Try screenshots where the chords and lyrics are large and clear.';
+      case 'ocr_failed': return `The text reader couldn’t run on this phone (${e.detail || 'unknown problem'}). You can paste the chords and lyrics as text below instead.`;
+      default: return 'Something went wrong while reading the screenshots. Try again.';
+    }
+  }
+  function placeBody(body, doneMsg, n){
+    const what = n === 1 ? 'the screenshot' : n + ' screenshots';
+    if ($('f-body').value.trim()){
+      pendingBody = body;
+      $('shot-choice').hidden = false;
+      setShotStatus(`Read ${what}. This song already has chords and lyrics. Replace them, or add what was read to the end?`);
+    } else {
+      $('f-body').value = body;
+      setShotStatus(doneMsg);
+    }
+  }
+  async function readShots(){
+    if (!shotsReady || !shots.length || readCtl || shotsBlocked) return;
+    const ctl = readCtl = new AbortController();
+    const files = shots.map(s => s.file), n = files.length;
+    pendingBody = null;
+    $('shot-unsure').hidden = true; $('shot-choice').hidden = true; $('shot-stop').hidden = false;
+    renderShots();
+    const say = (t) => { if (!ctl.signal.aborted && state.view === 'edit') setShotStatus(t); };
+    try {
+      const pages = await ocrShots(files, ctl, say);
+      if (ctl.signal.aborted) return;
+      const cleaned = pages.map(cleanScreen);
+      const screens = cleaned.map(c => c.lines).filter(ls => ls.some(t => t.trim()));
+      if (!screens.length) throw { code: 'no_text' };
+      const { body, joined } = stitch(screens);
+      const notes = [];
+      const dropped = cleaned.reduce((a, c) => a + c.dropped, 0);
+      if (dropped) notes.push(`removed ${dropped} line${dropped === 1 ? '' : 's'} of website clutter`);
+      if (joined) notes.push(`joined ${joined === 1 ? 'two screenshots' : 'the screenshots'} where they overlapped`);
+      const what = n === 1 ? 'the screenshot' : n + ' screenshots';
+      placeBody(body, `Read ${what}${notes.length ? ' and ' + notes.join(' and ') : ''}. Check the chords below against your screenshots${$('f-length').value.trim() ? '' : ', add the song’s length'}, then tap Save.`, n);
+    } catch (e){
+      if (state.view === 'edit') setShotStatus(readErr(e));
+    } finally {
+      if (readCtl === ctl) readCtl = null;
+      $('shot-stop').hidden = true;
+      renderShots();
+    }
+  }
+  $('shot-input').addEventListener('change', (e) => { addShots([...e.target.files]); e.target.value = ''; });
+  $('shot-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-i]'); if (!b || readCtl) return;
+    const [gone] = shots.splice(+b.dataset.i, 1);
+    if (gone) URL.revokeObjectURL(gone.url);
+    renderShots();
+  });
+  $('shot-read').onclick = readShots;
+  $('shot-stop').onclick = () => { if (readCtl) readCtl.abort(); };
+  $('shot-replace').onclick = () => {
+    if (pendingBody == null) return;
+    $('f-body').value = pendingBody; pendingBody = null; $('shot-choice').hidden = true;
+    setShotStatus('Replaced the chords and lyrics. Check them below, then tap Save.');
+  };
+  $('shot-append').onclick = () => {
+    if (pendingBody == null) return;
+    $('f-body').value = $('f-body').value.replace(/\s+$/, '') + '\n\n' + pendingBody; pendingBody = null; $('shot-choice').hidden = true;
+    setShotStatus('Added to the end. Check the chords below, then tap Save.');
+  };
+  const hasFiles = (e) => !!(e.dataTransfer && [...e.dataTransfer.types].includes('Files'));
+  ['dragenter', 'dragover'].forEach(t => $('v-edit').addEventListener(t, (e) => {
+    if (!shotsReady || shotsBlocked || !hasFiles(e)) return;
+    e.preventDefault(); $('shots').classList.add('drag');
+  }));
+  $('v-edit').addEventListener('dragleave', (e) => { if (!e.relatedTarget || !$('v-edit').contains(e.relatedTarget)) $('shots').classList.remove('drag'); });
+  $('v-edit').addEventListener('drop', (e) => {
+    $('shots').classList.remove('drag');
+    if (!shotsReady || shotsBlocked || !hasFiles(e)) return;
+    e.preventDefault(); addShots([...e.dataTransfer.files]);
+  });
+  document.addEventListener('paste', (e) => {
+    if (state.view !== 'edit' || !shotsReady || shotsBlocked) return;
+    const files = [...((e.clipboardData && e.clipboardData.files) || [])].filter(f => f.type.startsWith('image/'));
+    if (!files.length) return;
+    e.preventDefault(); addShots(files);
+  });
+
+  let toastTimer = 0;
+  function toast(t){
+    const el = $('toast');
+    el.textContent = t; el.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.hidden = true; }, 2800);
+  }
+
+  renderList();
+  connect();
+})();
+</script>
+</body>
+</html>

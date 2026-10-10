@@ -1,0 +1,15 @@
+{
+  "name": "playalong",
+  "version": "1.0.0",
+  "description": "A phone songbook that scrolls chords and lyrics in time with the song.",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
