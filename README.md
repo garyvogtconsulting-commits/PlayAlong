@@ -7,6 +7,10 @@ A phone songbook for chords, lyrics and notes that scrolls the sheet in time wit
 - **Read from screenshots.** Add screenshots of a chord sheet in any order. The text is read on the
   phone (Tesseract), website clutter is dropped, the screenshots are put in order and the lines
   they share are joined. Nothing is sent anywhere except the song you save.
+- **Send to PlayAlong bookmark.** A bookmark for Safari or Chrome on a Mac (the library links to it).
+  On any chord website it rebuilds the song from where each chord and word sits on the page, puts
+  every chord before the exact letter beneath it, and opens PlayAlong with the song ready to save.
+  Select part of the page first to send only that part.
 - **Baritone ukulele.** Six-line guitar tab is shown converted for baritone (D G B E). Chord names
   need no conversion.
 - **Transpose, text size, stage-friendly dark mode, foot-pedal keys, screen stays on while playing.**

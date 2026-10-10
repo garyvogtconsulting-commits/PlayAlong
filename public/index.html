@@ -166,6 +166,11 @@ pre.tab{margin:0;padding:.5em .7em;font:600 .66em/1.35 var(--f-mono);white-space
 .help pre{margin:0;padding:10px 12px;border-radius:8px;background:var(--bg);font:14px/1.4 var(--f-mono);overflow-x:auto}
 .err{margin:0;color:var(--danger);font-weight:700;font-size:.9rem}
 .libfoot{display:flex;flex-direction:column;align-items:flex-start;gap:14px;padding-block:8px 32px;font-size:.9rem}
+.grab{display:flex;flex-direction:column;gap:14px;max-width:36rem;padding-block:18px 40px}
+.grab p{margin:0}
+.grab-steps{margin:0;padding-left:1.3em;display:flex;flex-direction:column;gap:14px}
+.grab-btn-row{padding-top:10px}
+.grab-btn{cursor:grab;text-decoration:none}
 label.linkbtn{cursor:pointer}
 .login{margin:auto;width:100%;max-width:24rem;display:flex;flex-direction:column;gap:14px;padding-block:40px}
 .login-brand{margin:0;font:700 2.4rem/1 var(--f-chord)}
@@ -206,10 +211,34 @@ label.btn{cursor:pointer}
       <ul id="list" class="list"></ul>
       <div id="lib-empty" class="empty" hidden></div>
       <div id="libfoot" class="libfoot" hidden>
+        <button id="open-grab" class="linkbtn" type="button">Add songs from chord websites on your Mac</button>
         <a class="linkbtn" href="/api/export" download>Download a backup of your songs</a>
         <input id="import-input" class="vh" type="file" accept="application/json,.json">
         <label for="import-input" class="linkbtn">Import songs from a backup</label>
         <button id="signout" class="linkbtn" type="button">Sign out</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- The "Send to PlayAlong" bookmark -->
+  <section id="v-grab" class="view" hidden>
+    <header class="top pad">
+      <button id="grab-back" class="btn ghost" type="button" style="margin-left:-10px">Songs</button>
+      <div class="brand" style="align-items:center"><b style="font-size:1.35rem">Send to PlayAlong</b></div>
+      <span style="width:64px" aria-hidden="true"></span>
+    </header>
+    <div class="scroll pad">
+      <div class="grab">
+        <p>A bookmark for Safari or Chrome on your Mac. On a chord website, click it and PlayAlong opens with that song’s chords and lyrics filled in, ready to save.</p>
+        <ol class="grab-steps">
+          <li><strong>Show your bookmarks bar.</strong> Safari: View → Show Favorites Bar. Chrome: View → Always Show Bookmarks Bar. (Both: ⇧⌘B.)</li>
+          <li><strong>Drag this button onto the bar:</strong>
+            <div class="grab-btn-row"><a id="grab-link" class="btn primary grab-btn" href="#">Send to PlayAlong</a></div>
+          </li>
+          <li><strong>Open a song on a chord website and click the bookmark.</strong> PlayAlong opens in a new tab with the song filled in. Add the song’s length, then tap Save.</li>
+        </ol>
+        <p class="hint"><strong>If it picks up the wrong part of the page,</strong> select the chords and lyrics with your mouse first, then click the bookmark. It sends only what you selected.</p>
+        <p class="hint">A few websites block bookmarks like this. On those, copy the chords and lyrics and paste them into a new song instead.</p>
       </div>
     </div>
   </section>
@@ -680,6 +709,7 @@ function fmtTime(sec){
     state.loaded = true;
     $('libfoot').hidden = false;
     refresh();
+    if (incoming) openIncoming();
   }
   function showBanner(t){ $('banner').textContent = t; $('banner').hidden = false; }
   async function connect(){
@@ -748,7 +778,7 @@ function fmtTime(sec){
   function show(view){
     if (view !== 'edit' && state.view === 'edit') clearShots();
     state.view = view;
-    for (const v of ['lib', 'song', 'edit', 'login']) $('v-' + v).hidden = v !== view;
+    for (const v of ['lib', 'song', 'edit', 'login', 'grab']) $('v-' + v).hidden = v !== view;
   }
   function refresh(){
     if (state.view === 'lib') renderList();
@@ -1595,6 +1625,184 @@ function fmtTime(sec){
     if (!files.length) return;
     e.preventDefault(); addShots(files);
   });
+
+  /* ---------- the "Send to PlayAlong" bookmark ---------- */
+  // This function never runs in PlayAlong. Its source becomes the bookmark, which runs on the chord
+  // website: it rebuilds what's on screen as text, keeping each chord over its word by where it sits on
+  // the page (so it works whatever the site's code looks like), then opens PlayAlong with the song in
+  // the address after "#add=". Keep it self-contained: it can't see anything else in this file.
+  function playalongGrab(TARGET){
+    var CHORD = /^\(?[A-G](?:#|b)?(?:maj|min|m|M|dim|aug|sus|add|\+|-)?\d{0,2}(?:(?:maj|add|sus|b|#|\+|-|\/)?\d{1,2})*(?:\/[A-G](?:#|b)?)?\)?$/;
+    var SKIP = { SCRIPT: 1, STYLE: 1, NOSCRIPT: 1, BUTTON: 1, SELECT: 1, TEXTAREA: 1, INPUT: 1, NAV: 1 };
+    var sel = window.getSelection ? window.getSelection() : null;
+    var range = sel && sel.rangeCount && !sel.isCollapsed && sel.toString().trim() ? sel.getRangeAt(0) : null;
+    var root, counts, total = 0, n, e;
+    if (range){
+      root = range.commonAncestorContainer;
+      if (root.nodeType !== 1) root = root.parentElement;
+    } else {
+      /* the deepest element holding most of the page's chord names is the song */
+      counts = new Map();
+      var tw0 = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while ((n = tw0.nextNode())){
+        var k = (n.nodeValue.match(/\S+/g) || []).filter(function(w){ return CHORD.test(w); }).length;
+        if (!k) continue;
+        total += k;
+        for (e = n.parentElement; e; e = e.parentElement) counts.set(e, (counts.get(e) || 0) + k);
+      }
+      if (total < 3){ alert('PlayAlong couldn’t find chords on this page. Select the chords and lyrics with your mouse, then click the bookmark again.'); return; }
+      root = document.body;
+      var bestDepth = -1;
+      counts.forEach(function(k, el){
+        if (k < total * 0.8) return;
+        var d = 0; for (var p = el; p; p = p.parentElement) d++;
+        if (d > bestDepth){ bestDepth = d; root = el; }
+      });
+    }
+    var words = [], r = document.createRange();
+    var tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    while ((n = tw.nextNode())){
+      if (range && !range.intersectsNode(n)) continue;
+      var skip = false;
+      for (e = n.parentElement; e && e !== root.parentElement; e = e.parentElement) if (SKIP[e.tagName]){ skip = true; break; }
+      if (skip || getComputedStyle(n.parentElement).visibility === 'hidden') continue;
+      var re = /\S+/g, m;
+      while ((m = re.exec(n.nodeValue))){
+        var a = m.index, b = a + m[0].length;
+        if (range){
+          if (n === range.startContainer) a = Math.max(a, range.startOffset);
+          if (n === range.endContainer) b = Math.min(b, range.endOffset);
+          if (a >= b) continue;
+        }
+        r.setStart(n, a); r.setEnd(n, b);
+        var q = r.getClientRects()[0];
+        if (!q || q.width < 1 || q.height < 1) continue;
+        words.push({ t: n.nodeValue.slice(a, b), x: q.left + window.scrollX, y: q.top + window.scrollY, w: q.width, h: q.height, n: n, a: a, b: b });
+      }
+    }
+    if (!words.length){ alert('PlayAlong couldn’t find any text to send. Select the chords and lyrics, then click the bookmark again.'); return; }
+    /* rows: words whose middles line up */
+    words.sort(function(p, q){ return (p.y + p.h / 2) - (q.y + q.h / 2) || p.x - q.x; });
+    var rows = [];
+    words.forEach(function(w){
+      var cy = w.y + w.h / 2, last = rows[rows.length - 1];
+      if (last && Math.abs(cy - last.cy) < Math.min(w.h, last.h) * 0.5){ last.words.push(w); last.bottom = Math.max(last.bottom, w.y + w.h); }
+      else rows.push({ cy: cy, h: w.h, top: w.y, bottom: w.y + w.h, words: [w] });
+    });
+    var med = function(list){ list.sort(function(x, y){ return x - y; }); return list.length ? list[list.length >> 1] : 0; };
+    var cw = med(words.filter(function(w){ return w.t.length >= 3; }).map(function(w){ return w.w / w.t.length; })) || 8;
+    var lh = med(rows.map(function(x){ return x.h; })) || 16;
+    var left = Math.min.apply(null, words.map(function(w){ return w.x; }));
+    /* a row of chord names, and the exact letter of a word that sits under a given point */
+    var isChordRow = function(row){
+      var c = 0;
+      for (var i = 0; i < row.words.length; i++){
+        var t = row.words[i].t;
+        if (CHORD.test(t)) c++;
+        else if (!/^(\|+|x\d+|\(x\d+\)|N\.?C\.?|-+|\/)$/i.test(t)) return false;
+      }
+      return c > 0;
+    };
+    var letterAt = function(w, x){
+      for (var i = w.a; i < w.b; i++){
+        r.setStart(w.n, i); r.setEnd(w.n, i + 1);
+        var q = r.getClientRects()[0];
+        if (q && x < q.left + window.scrollX + q.width / 2) return i - w.a;
+      }
+      return w.b - w.a;
+    };
+    /* a chord row over a lyric row becomes one line with each chord in [brackets] before its letter */
+    var mergeRows = function(chords, lyric){
+      var lw = lyric.words.slice().sort(function(p, q){ return p.x - q.x; }), s = '', end = null;
+      lw.forEach(function(w){
+        if (end !== null && w.x - end > cw * 0.25) s += ' ';
+        w.at = s.length; s += w.t; end = w.x + w.w;
+      });
+      var marks = [], tail = [];
+      chords.words.forEach(function(c){
+        var k = 0;
+        for (var i = 0; i < lw.length; i++) if (c.x >= lw[i].x - cw * 0.3) k = i;
+        if (c.x >= lw[k].x + lw[k].w - cw * 0.2){
+          if (k + 1 < lw.length) k++;
+          else { tail.push('[' + c.t + ']'); return; }
+          marks.push({ t: c.t, at: lw[k].at });
+          return;
+        }
+        marks.push({ t: c.t, at: lw[k].at + Math.min(letterAt(lw[k], c.x), lw[k].t.length) });
+      });
+      marks.sort(function(p, q){ return q.at - p.at; }).forEach(function(m){ s = s.slice(0, m.at) + '[' + m.t + ']' + s.slice(m.at); });
+      return s + (tail.length ? ' ' + tail.join(' ') : '');
+    };
+    var spaced = function(row){
+      var s = '';
+      row.words.forEach(function(w){
+        var col = Math.max(0, Math.round((w.x - left) / cw));
+        s = s.length && s.length >= col ? s + ' ' : s + new Array(col - s.length + 1).join(' ');
+        s += w.t;
+      });
+      return s.replace(/\s+$/, '');
+    };
+    var out = [], prev = null;
+    for (var ri = 0; ri < rows.length; ri++){
+      var row = rows[ri];
+      row.words.sort(function(p, q){ return p.x - q.x; });
+      if (prev !== null && row.top - prev > lh * 0.8) out.push('');
+      var next = rows[ri + 1];
+      if (next && isChordRow(row) && !isChordRow(next) && next.top - row.bottom < lh * 0.8){
+        out.push(mergeRows(row, next));
+        prev = next.bottom; ri++;
+        continue;
+      }
+      out.push(spaced(row));
+      prev = row.bottom;
+    }
+    /* title and artist from the page's own title, e.g. "Song Chords by Artist | Site" or "SONG Chords - Artist" */
+    var metaEl = document.querySelector('meta[property="og:title"]');
+    var full = ((metaEl && metaEl.content) || document.title || '').replace(/\s+/g, ' ').trim();
+    var title = full.split(/\s+[|•]\s+/)[0], artist = '';
+    var mm = title.match(/^(.*?)\s+(?:chords|tabs?|lyrics|ukulele|guitar)\b(?:\s+(?:and|&)\s+\w+)*\s*(?:by|-|–|—)\s*(.+)$/i);
+    if (mm){ title = mm[1]; artist = mm[2]; } else title = title.replace(/\s+(?:chords|tabs?|lyrics)\b.*$/i, '');
+    var find = function(re){ var t = (root.innerText || '').match(re) || (document.body.innerText || '').match(re); return t ? t[1] : ''; };
+    var key = find(/\bKey\s*:?\s*([A-G][#b]?m?)\b/);
+    var capo = find(/\bCapo\s*(?:on\s*)?:?\s*(\d{1,2})/i);
+    var json = JSON.stringify({ v: 1, title: title, artist: artist, key: key, capo: capo, body: out.join('\n'), source: location.hostname });
+    var enc = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    var win = window.open(TARGET + '/#add=' + enc, '_blank');
+    if (!win) location.href = TARGET + '/#add=' + enc;
+  }
+  function grabBookmarkHref(){
+    const code = playalongGrab.toString().replace(/\n\s+/g, '\n');   // drop indentation to keep the bookmark small
+    return 'javascript:' + encodeURIComponent('(' + code + ')(' + JSON.stringify(location.origin) + ');void 0');
+  }
+  $('open-grab').onclick = () => { $('grab-link').href = grabBookmarkHref(); show('grab'); };
+  $('grab-back').onclick = showLib;
+  $('grab-link').addEventListener('click', (e) => { e.preventDefault(); toast('Drag this button to your bookmarks bar, rather than clicking it here.'); });
+
+  // A song arriving from the bookmark: open it in a new song, tidied like a screenshot read.
+  let incoming = null;
+  function readIncoming(){
+    const m = location.hash.match(/^#add=([A-Za-z0-9_-]+)$/);
+    if (!m) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    try {
+      const d = JSON.parse(decodeURIComponent(escape(atob(m[1].replace(/-/g, '+').replace(/_/g, '/')))));
+      if (d && typeof d.body === 'string' && d.body.trim()) incoming = d;
+    } catch {}
+    if (!incoming) setTimeout(() => toast('That song didn’t come through. Try the bookmark again.'), 600);
+  }
+  readIncoming();
+  // PlayAlong already open in this tab: the bookmark only changes the address after "#"
+  window.addEventListener('hashchange', () => { readIncoming(); if (incoming && state.loaded && state.view !== 'login') openIncoming(); });
+  function openIncoming(){
+    const d = incoming; incoming = null;
+    openEditor(null);
+    const { lines, dropped } = cleanScreen(d.body.split('\n').map(text => ({ text, conf: 100 })));
+    $('f-body').value = lines.join('\n');
+    const fill = (id, v) => { if (typeof v === 'string' && v.trim() && v.trim().length <= 120) $(id).value = v.trim(); };
+    fill('f-title', d.title); fill('f-artist', d.artist); fill('f-key', d.key);
+    if (/^\d{1,2}$/.test(String(d.capo || '')) && +d.capo > 0 && +d.capo <= 12) $('f-capo').value = String(+d.capo);
+    setShotStatus(`Brought in from ${d.source || 'the website'}${dropped ? `, with ${dropped} line${dropped === 1 ? '' : 's'} of website clutter removed` : ''}. Check it below, add the song’s length, then tap Save.`);
+  }
 
   let toastTimer = 0;
   function toast(t){
