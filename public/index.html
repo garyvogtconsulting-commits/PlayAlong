@@ -1396,8 +1396,18 @@ function fmtTime(sec){
       return { worker, failed };
     } finally { clearTimeout(timer); }
   }
-  // Grey from the darkest colour channel, so light-coloured chord names stay dark enough to read;
-  // a dark-mode page is flipped to dark text on light.
+  // A light page is read as grey from the darkest colour channel, so light-coloured chord names stay
+  // dark enough to read. A dark page is read by brightness, as dark ink on white: light letters are
+  // the ink, from DARK_INK_FROM (none) to DARK_INK_FULL (full), and a coloured box behind a chord
+  // name is mid-dark, so it counts as background and the reader sees only the letter. Flipping the
+  // darkest channel instead turned those boxes light grey (the reader split a C into "Cc") and
+  // turned coloured chord text near-white (yellow chords on a dark page vanished).
+  const DARK_INK_FROM = 90, DARK_INK_FULL = 140;
+  function readingGrey(r, g, b, dark){
+    if (!dark) return Math.min(r, g, b);
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    return Math.round(255 - 255 * Math.max(0, Math.min(1, (lum - DARK_INK_FROM) / (DARK_INK_FULL - DARK_INK_FROM))));
+  }
   async function prepShot(file){
     const bmp = await createImageBitmap(file);
     const scale = Math.min(2, 1100 / bmp.width);
@@ -1408,10 +1418,24 @@ function fmtTime(sec){
     if (bmp.close) bmp.close();
     const img = g.getImageData(0, 0, w, h), d = img.data;
     let sum = 0;
-    for (let i = 0; i < d.length; i += 4){ const v = Math.min(d[i], d[i + 1], d[i + 2]); d[i] = d[i + 1] = d[i + 2] = v; sum += v; }
-    if (sum / (d.length / 4) < 110) for (let i = 0; i < d.length; i += 4){ const v = 255 - d[i]; d[i] = d[i + 1] = d[i + 2] = v; }
+    for (let i = 0; i < d.length; i += 4) sum += Math.min(d[i], d[i + 1], d[i + 2]);
+    const dark = sum / (d.length / 4) < 110;
+    for (let i = 0; i < d.length; i += 4){ const v = readingGrey(d[i], d[i + 1], d[i + 2], dark); d[i] = d[i + 1] = d[i + 2] = v; }
     g.putImageData(img, 0, 0);
     return c;
+  }
+  // The reader sometimes reads one letter twice: a second letter inside the first one's own width
+  // (a monospace "I" read as "IT"), or a wide bold capital split in two side by side (a chord's "C"
+  // read as "Cc"). The first kind is always dropped; the second only when dropping it leaves a
+  // chord name, so a real word ("Aaron") or a flat chord ("Bb") is never touched.
+  function oneReadingPerLetter(syms, text){
+    let kept = syms.filter((s, i) => i === 0 || !(s.bbox.x0 >= syms[i - 1].bbox.x0 - 1 && s.bbox.x1 <= syms[i - 1].bbox.x1 + 1));
+    if (!CHORD_RE.test(kept.map(s => s.text).join(''))){
+      const merged = kept.filter((s, i) => i === 0 || !(s.text !== kept[i - 1].text
+        && s.text === kept[i - 1].text.toLowerCase() && s.bbox.x0 <= kept[i - 1].bbox.x1 + 2));
+      if (merged.length < kept.length && CHORD_RE.test(merged.map(s => s.text).join(''))) kept = merged;
+    }
+    return kept.length === syms.length ? { syms, text } : { syms: kept, text: kept.map(s => s.text).join('') };
   }
   // Rebuild the page as lines of text, keeping each word at its horizontal position so chords stay over
   // their words; each line carries the reader's confidence.
@@ -1446,8 +1470,9 @@ function fmtTime(sec){
       const space = lineGaps.length ? Math.min(median(lineGaps), pageSpace || Infinity) : pageSpace;
       let pieces = [];
       for (const w of words){
-        const text = w.text.trim();
-        const syms = (w.symbols || []).filter(s => s.text && s.text.trim());
+        let text = w.text.trim();
+        let syms = (w.symbols || []).filter(s => s.text && s.text.trim());
+        if (syms.length > 1 && syms.map(s => s.text).join('') === text) ({ syms, text } = oneReadingPerLetter(syms, text));
         if (syms.length > 1 && syms.map(s => s.text).join('') === text){
           // split a "word" wherever the gap between two letters is as wide as a real space
           let cur = [syms[0]];
